@@ -1,30 +1,9 @@
-use crossterm::{cursor, terminal, ExecutableCommand};
-use std::{error::Error, io, thread::sleep, time::Duration};
+mod core;
+mod input;
+mod state;
 
-fn main() -> Result<(), Box<dyn Error>> {
-    let mut stdout = io::stdout();
+use core::Core;
 
-    stdout.execute(terminal::EnterAlternateScreen)?;
-
-    sleep(Duration::from_millis(500));
-
-    stdout.execute(cursor::MoveRight(1))?;
-
-    sleep(Duration::from_millis(500));
-
-    stdout.execute(cursor::MoveRight(1))?;
-
-    sleep(Duration::from_millis(500));
-
-    stdout.execute(cursor::MoveRight(1))?;
-
-    sleep(Duration::from_millis(500));
-
-    stdout.execute(cursor::MoveTo(0, 0))?;
-
-    sleep(Duration::from_millis(500));
-
-    stdout.execute(terminal::LeaveAlternateScreen)?;
-
-    Ok(())
+fn main() -> anyhow::Result<()> {
+    Core::new()?.run()
 }
