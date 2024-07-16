@@ -1,53 +1,41 @@
-use crate::input::Input;
-use crate::state::State;
-use crossterm::{
-    event::{EnableMouseCapture, Event},
-    terminal, ExecutableCommand,
+use crate::{
+    component::{state::State, Component},
+    input::Input,
+    message::Message,
 };
+use crossterm::terminal;
 use std::{
-    io::{self, StdoutLock},
+    io::{self, StdoutLock, Write},
     thread,
     time::Duration,
 };
 
 pub struct Core {
     state: State,
-    stdout: StdoutLock<'static>,
-    size: (u16, u16),
+    output: StdoutLock<'static>,
 }
 
 impl Core {
     pub fn new() -> anyhow::Result<Self> {
         terminal::enable_raw_mode()?;
-        let mut stdout = io::stdout().lock();
-        if let Err(error) = stdout.execute(EnableMouseCapture) {
-            terminal::disable_raw_mode()?;
-            Err(error.into())
-        } else {
-            Ok(Self {
-                state: State::new(),
-                stdout,
-                size: terminal::size()?,
-            })
-        }
+
+        Ok(Self {
+            state: State::new(terminal::size()?),
+            output: io::stdout().lock(),
+        })
     }
 
-    pub fn run(self) -> anyhow::Result<()> {
+    pub fn run(mut self) -> anyhow::Result<()> {
         let frame_time = Duration::from_secs_f32(1.0 / 60.0);
         let input = Input::new();
 
         loop {
-            for event in input.read()? {
-                match event {
-                    Event::FocusGained => todo!(),
-                    Event::FocusLost => todo!(),
-                    Event::Key(_) => todo!(),
-                    Event::Mouse(_) => todo!(),
-                    Event::Paste(_) => todo!(),
-                    Event::Resize(_, _) => todo!(),
-                }
-            }
             thread::sleep(frame_time);
+            for event in input.read()? {
+                self.state.update(Message::Event(event))?;
+            }
+            self.state.view(&mut self.output)?;
+            self.output.flush()?;
         }
     }
 }

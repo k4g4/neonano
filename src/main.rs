@@ -1,6 +1,7 @@
+mod component;
 mod core;
 mod input;
-mod state;
+mod message;
 
 use core::Core;
 
