@@ -1,11 +1,8 @@
-use crate::{component::Component, message::Message};
-use crossterm::{
-    event::{EnableMouseCapture, Event},
-    terminal::EnterAlternateScreen,
-    QueueableCommand,
-};
+use crate::{component::Component, message::Message, view::Viewer};
+use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind};
 
 pub struct State {
+    #[allow(unused)]
     size: (u16, u16),
 }
 
@@ -17,25 +14,43 @@ impl State {
 
 impl Component for State {
     fn update(&mut self, message: Message) -> anyhow::Result<Option<Message>> {
-        match message {
+        Ok(match message {
             Message::Event(event) => match event {
-                Event::FocusGained => todo!(),
-                Event::FocusLost => todo!(),
-                Event::Key(_) => todo!(),
-                Event::Mouse(_) => todo!(),
-                Event::Paste(_) => todo!(),
-                Event::Resize(_, _) => todo!(),
+                Event::FocusGained => {
+                    //
+                    None
+                }
+                Event::FocusLost => {
+                    //
+                    None
+                }
+                Event::Key(KeyEvent {
+                    code,
+                    kind,
+                    modifiers: _,
+                    state: _,
+                }) => match (code, kind) {
+                    (KeyCode::Char('q'), KeyEventKind::Press) => Some(Message::Quit),
+                    _ => None,
+                },
+                Event::Mouse(_) => {
+                    //
+                    None
+                }
+                Event::Paste(_) => {
+                    //
+                    None
+                }
+                Event::Resize(_, _) => {
+                    //
+                    None
+                }
             },
-        }
-
-        Ok(None)
+            _ => None,
+        })
     }
 
-    fn view(&self, output: &mut impl QueueableCommand) -> anyhow::Result<()> {
-        output
-            .queue(EnableMouseCapture)?
-            .queue(EnterAlternateScreen)?;
-
-        Ok(())
+    fn view<'a>(&self, viewer: Viewer<'a>) -> anyhow::Result<Viewer<'a>> {
+        viewer.write_line("foobar")?.write_line("bazqux")
     }
 }
