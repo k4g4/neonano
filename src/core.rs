@@ -13,12 +13,15 @@ use crossterm::{
 use std::io::Write;
 
 pub struct Core {
+    size: (u16, u16),
     state: State,
     output: Output,
 }
 
 impl Core {
     pub fn new() -> anyhow::Result<Self> {
+        let size = terminal::size()?;
+
         terminal::enable_raw_mode()?;
 
         let mut output = get_output();
@@ -31,7 +34,8 @@ impl Core {
             Err(error.into())
         } else {
             Ok(Self {
-                state: State::new(terminal::size()?),
+                size,
+                state: State::new(),
                 output,
             })
         }
@@ -60,7 +64,8 @@ impl Core {
                 self.output
                     .queue(Clear(ClearType::All))?
                     .queue(MoveTo(0, 0))?;
-                self.state.view(Viewer::new(&mut self.output, 10, 10))?;
+                self.state
+                    .view(Viewer::new(&mut self.output, self.size.0, self.size.1))?;
                 self.output.flush()?;
             }
             updated = false;

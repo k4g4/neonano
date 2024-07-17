@@ -1,14 +1,15 @@
 use crate::{component::Component, message::Message, view::Viewer};
-use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind};
+use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 pub struct State {
-    #[allow(unused)]
-    size: (u16, u16),
+    contents: String,
 }
 
 impl State {
-    pub fn new(size: (u16, u16)) -> Self {
-        Self { size }
+    pub fn new() -> Self {
+        Self {
+            contents: Default::default(),
+        }
     }
 }
 
@@ -27,12 +28,52 @@ impl Component for State {
                 Event::Key(KeyEvent {
                     code,
                     kind,
-                    modifiers: _,
-                    state: _,
-                }) => match (code, kind) {
-                    (KeyCode::Char('q'), KeyEventKind::Press) => Some(Message::Quit),
-                    _ => None,
-                },
+                    modifiers,
+                    ..
+                }) => {
+                    if kind == KeyEventKind::Press {
+                        if modifiers.is_empty() {
+                            match code {
+                                KeyCode::Char(c) => {
+                                    self.contents.push(c);
+                                    None
+                                }
+                                KeyCode::Backspace => {
+                                    self.contents.pop();
+                                    None
+                                }
+                                KeyCode::Tab => {
+                                    self.contents += "    ";
+                                    None
+                                }
+                                KeyCode::Enter => {
+                                    self.contents.push('\n');
+                                    None
+                                }
+                                _ => None,
+                            }
+                        } else if modifiers.contains(KeyModifiers::SHIFT) {
+                            match code {
+                                KeyCode::Char(c) => {
+                                    self.contents.push(c.to_ascii_uppercase());
+                                    None
+                                }
+                                _ => None,
+                            }
+                        } else if modifiers.contains(KeyModifiers::CONTROL) {
+                            match code {
+                                KeyCode::Char('c' | 'x') => Some(Message::Quit),
+                                _ => None,
+                            }
+                        } else {
+                            match code {
+                                _ => None,
+                            }
+                        }
+                    } else {
+                        None
+                    }
+                }
                 Event::Mouse(_) => {
                     //
                     None
@@ -51,6 +92,13 @@ impl Component for State {
     }
 
     fn view<'a>(&self, viewer: Viewer<'a>) -> anyhow::Result<Viewer<'a>> {
-        viewer.write_line("foobar")?.write_line("bazqux")
+        let mut lines = self.contents.split('\n');
+        let last_line = lines.next_back();
+        let viewer = lines.try_fold(viewer, |viewer, line| viewer.writeln(line))?;
+        if let Some(last_line) = last_line {
+            viewer.write(last_line)
+        } else {
+            Ok(viewer)
+        }
     }
 }

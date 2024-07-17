@@ -1,4 +1,8 @@
-use crossterm::{cursor::MoveToNextLine, style::Print, QueueableCommand};
+use crossterm::{
+    cursor::{EnableBlinking, MoveDown, MoveLeft},
+    style::Print,
+    QueueableCommand,
+};
 use std::io::{stdout, StdoutLock};
 
 pub type Output = StdoutLock<'static>;
@@ -24,15 +28,30 @@ impl<'output> Viewer<'output> {
         }
     }
 
-    pub fn write_line(self, line: &str) -> anyhow::Result<Self> {
+    pub fn write(self, text: &str) -> anyhow::Result<Self> {
         if self.row < self.height {
             self.output
-                .queue(Print(line.get(..self.width.into()).unwrap_or(line)))?
-                .queue(MoveToNextLine(1))?;
+                .queue(Print(text.get(..self.width.into()).unwrap_or(text)))?
+                .queue(EnableBlinking)?;
+            Ok(Self {
+                row: self.row + 1,
+                ..self
+            })
+        } else {
+            Ok(self)
         }
-        Ok(Self {
-            row: self.row + 1,
-            ..self
-        })
+    }
+
+    pub fn writeln(self, line: &str) -> anyhow::Result<Self> {
+        if self.row < self.height {
+            let viewer = self.write(line)?;
+            viewer
+                .output
+                .queue(MoveLeft(line.len().try_into()?))?
+                .queue(MoveDown(1))?;
+            Ok(viewer)
+        } else {
+            Ok(self)
+        }
     }
 }
