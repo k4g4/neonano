@@ -91,7 +91,7 @@ impl Component for State {
         })
     }
 
-    fn view<'a>(&self, viewer: Viewer<'a>) -> anyhow::Result<Viewer<'a>> {
+    fn view<'core>(&self, viewer: Viewer<'core>) -> anyhow::Result<Viewer<'core>> {
         let mut lines = self.contents.split('\n');
         let last_line = lines.next_back();
         let viewer = lines.try_fold(viewer, |viewer, line| viewer.writeln(line))?;

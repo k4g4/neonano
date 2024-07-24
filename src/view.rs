@@ -1,31 +1,51 @@
 use crossterm::{
-    cursor::{EnableBlinking, MoveDown, MoveLeft},
+    cursor::{EnableBlinking, MoveDown, MoveTo, MoveToColumn},
     style::Print,
     QueueableCommand,
 };
-use std::io::{stdout, StdoutLock};
+use std::io::{self, StdoutLock};
 
 pub type Output = StdoutLock<'static>;
 
 pub fn get_output() -> Output {
-    stdout().lock()
+    io::stdout().lock()
 }
 
-pub struct Viewer<'output> {
-    output: &'output mut Output,
+#[derive(Debug)]
+pub struct Viewer<'core> {
+    x: u16,
+    y: u16,
     width: u16,
-    row: u16,
     height: u16,
+    row: u16,
+    output: &'core mut Output,
 }
 
-impl<'output> Viewer<'output> {
-    pub fn new(output: &'output mut Output, width: u16, height: u16) -> Self {
+impl<'core> Viewer<'core> {
+    pub fn new(output: &'core mut Output, x: u16, y: u16, width: u16, height: u16) -> Self {
         Self {
-            output,
+            x,
+            y,
             width,
-            row: 0,
             height,
+            row: 0,
+            output,
         }
+    }
+
+    pub fn crop(self, right: u16, down: u16, width: u16, height: u16) -> anyhow::Result<Self> {
+        let x = self.x + right;
+        let y = self.y + down;
+        let output = self.output.queue(MoveTo(self.x + right, self.y + down))?;
+
+        Ok(Self {
+            x,
+            y,
+            width,
+            height,
+            row: 0,
+            output,
+        })
     }
 
     pub fn write(self, text: &str) -> anyhow::Result<Self> {
@@ -47,7 +67,7 @@ impl<'output> Viewer<'output> {
             let viewer = self.write(line)?;
             viewer
                 .output
-                .queue(MoveLeft(line.len().try_into()?))?
+                .queue(MoveToColumn(viewer.x))?
                 .queue(MoveDown(1))?;
             Ok(viewer)
         } else {

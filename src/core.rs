@@ -2,7 +2,7 @@ use crate::{
     component::{state::State, Component},
     input::Input,
     message::Message,
-    view::{get_output, Output, Viewer},
+    view::{self, Output, Viewer},
 };
 use crossterm::{
     cursor::MoveTo,
@@ -24,7 +24,7 @@ impl Core {
 
         terminal::enable_raw_mode()?;
 
-        let mut output = get_output();
+        let mut output = view::get_output();
         if let Err(error) = output
             .queue(EnterAlternateScreen)
             .and_then(|output| output.queue(EnableMouseCapture))
@@ -64,8 +64,13 @@ impl Core {
                 self.output
                     .queue(Clear(ClearType::All))?
                     .queue(MoveTo(0, 0))?;
-                self.state
-                    .view(Viewer::new(&mut self.output, self.size.0, self.size.1))?;
+                self.state.view(Viewer::new(
+                    &mut self.output,
+                    0,
+                    0,
+                    self.size.0,
+                    self.size.1,
+                ))?;
                 self.output.flush()?;
             }
             updated = false;

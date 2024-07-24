@@ -6,5 +6,5 @@ use crate::view::Viewer;
 pub trait Component {
     fn update(&mut self, event: Message) -> anyhow::Result<Option<Message>>;
 
-    fn view<'a>(&self, viewer: Viewer<'a>) -> anyhow::Result<Viewer<'a>>;
+    fn view<'core>(&self, viewer: Viewer<'core>) -> anyhow::Result<Viewer<'core>>;
 }
