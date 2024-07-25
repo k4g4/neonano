@@ -1,20 +1,29 @@
-use crate::{component::Component, message::Message, view::Viewer};
+use crate::{
+    component::{Component, ComponentHolder},
+    message::Message,
+    view::Viewer,
+};
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
+#[derive(Default, Debug)]
 pub struct State {
+    components: Vec<ComponentHolder>,
+    active_component: Option<usize>,
     contents: String,
 }
 
 impl State {
     pub fn new() -> Self {
-        Self {
-            contents: Default::default(),
-        }
+        Default::default()
     }
 }
 
 impl Component for State {
     fn update(&mut self, message: &Message) -> anyhow::Result<Option<Message>> {
+        if let Some(active_component) = self.active_component {
+            self.components[active_component].update(message)?;
+        }
+
         Ok(match message {
             Message::Event(event) => match event {
                 Event::FocusGained => {
@@ -92,6 +101,7 @@ impl Component for State {
     }
 
     fn view<'core>(&self, viewer: Viewer<'core>) -> anyhow::Result<Viewer<'core>> {
+        let viewer = viewer.vsplit(&self.components)?;
         let mut lines = self.contents.split('\n');
         let last_line = lines.next_back();
         let viewer = lines.try_fold(viewer, |viewer, line| viewer.write(line))?;
