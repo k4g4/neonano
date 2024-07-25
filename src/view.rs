@@ -57,12 +57,47 @@ impl<'core> Viewer<'core> {
         Ok(Self { from, to, ..viewer })
     }
 
-    pub fn split(self, components: &[impl Component]) -> anyhow::Result<Self> {
+    pub fn hsplit(self, components: &[impl Component]) -> anyhow::Result<Self> {
         let Self { from, to, .. } = self;
+        let len = components.len() as u16;
+        let section_width = (to.x - from.x) / len;
+        let section_starts = (0..len).map(|n| n * section_width);
+        let section_ends = section_starts.clone().map(|x| x + section_width);
+        let mut iter = components.iter().zip(section_starts.zip(section_ends));
 
-        components.iter().try_fold(self, |viewer, component| {
-            //
-            todo!()
+        iter.try_fold(self, |viewer, (component, (start, end))| {
+            let (from_x, to_x) = (from.x + start, from.x + end);
+            let new_from = Point {
+                x: from_x,
+                y: viewer.from.y,
+            };
+            let new_to = Point {
+                x: to_x,
+                y: viewer.to.y,
+            };
+            viewer.within(new_from, new_to, component)
+        })
+    }
+
+    pub fn vsplit(self, components: &[impl Component]) -> anyhow::Result<Self> {
+        let Self { from, to, .. } = self;
+        let len = components.len() as u16;
+        let section_height = (to.y - from.y) / len;
+        let section_starts = (0..len).map(|n| n * section_height);
+        let section_ends = section_starts.clone().map(|x| x + section_height);
+        let mut iter = components.iter().zip(section_starts.zip(section_ends));
+
+        iter.try_fold(self, |viewer, (component, (start, end))| {
+            let (from_y, to_y) = (from.y + start, from.y + end);
+            let new_from = Point {
+                x: viewer.from.x,
+                y: from_y,
+            };
+            let new_to = Point {
+                x: viewer.to.x,
+                y: to_y,
+            };
+            viewer.within(new_from, new_to, component)
         })
     }
 
