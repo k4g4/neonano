@@ -14,7 +14,7 @@ impl State {
 }
 
 impl Component for State {
-    fn update(&mut self, message: Message) -> anyhow::Result<Option<Message>> {
+    fn update(&mut self, message: &Message) -> anyhow::Result<Option<Message>> {
         Ok(match message {
             Message::Event(event) => match event {
                 Event::FocusGained => {
@@ -31,11 +31,11 @@ impl Component for State {
                     modifiers,
                     ..
                 }) => {
-                    if kind == KeyEventKind::Press {
+                    if *kind == KeyEventKind::Press {
                         if modifiers.is_empty() {
                             match code {
                                 KeyCode::Char(c) => {
-                                    self.contents.push(c);
+                                    self.contents.push(*c);
                                     None
                                 }
                                 KeyCode::Backspace => {
@@ -94,7 +94,7 @@ impl Component for State {
     fn view<'core>(&self, viewer: Viewer<'core>) -> anyhow::Result<Viewer<'core>> {
         let mut lines = self.contents.split('\n');
         let last_line = lines.next_back();
-        let viewer = lines.try_fold(viewer, |viewer, line| viewer.writeln(line))?;
+        let viewer = lines.try_fold(viewer, |viewer, line| viewer.write(line))?;
         if let Some(last_line) = last_line {
             viewer.write(last_line)
         } else {

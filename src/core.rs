@@ -2,7 +2,7 @@ use crate::{
     component::{state::State, Component},
     input::Input,
     message::Message,
-    view::{self, Output, Viewer},
+    view::{self, Output, Point, Viewer},
 };
 use crossterm::{
     cursor::MoveTo,
@@ -13,14 +13,14 @@ use crossterm::{
 use std::io::Write;
 
 pub struct Core {
-    size: (u16, u16),
     state: State,
+    size: Point,
     output: Output,
 }
 
 impl Core {
     pub fn new() -> anyhow::Result<Self> {
-        let size = terminal::size()?;
+        let (width, height) = terminal::size()?;
 
         terminal::enable_raw_mode()?;
 
@@ -34,8 +34,11 @@ impl Core {
             Err(error.into())
         } else {
             Ok(Self {
-                size,
                 state: State::new(),
+                size: Point {
+                    x: width,
+                    y: height,
+                },
                 output,
             })
         }
@@ -49,7 +52,7 @@ impl Core {
             for event in input.read()? {
                 updated = true;
                 let mut message = Message::Event(event);
-                while let Some(new_message) = self.state.update(message)? {
+                while let Some(new_message) = self.state.update(&message)? {
                     match new_message {
                         Message::Quit => {
                             return Ok(());
@@ -64,13 +67,8 @@ impl Core {
                 self.output
                     .queue(Clear(ClearType::All))?
                     .queue(MoveTo(0, 0))?;
-                self.state.view(Viewer::new(
-                    &mut self.output,
-                    0,
-                    0,
-                    self.size.0,
-                    self.size.1,
-                ))?;
+                self.state
+                    .view(Viewer::new(&mut self.output, Default::default(), self.size))?;
                 self.output.flush()?;
             }
             updated = false;
