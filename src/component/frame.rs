@@ -1,24 +1,28 @@
 use crate::{
-    component::{Component, ComponentHolder},
+    component::{
+        statusbars::{BottomBar, TopBar},
+        window::Window,
+        Component,
+    },
     message::Message,
     view::Viewer,
 };
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 #[derive(Default, Debug)]
-pub struct State {
-    components: Vec<ComponentHolder>,
-    active_component: Option<usize>,
-    contents: String,
+pub struct Frame {
+    top: TopBar,
+    window: Window,
+    bottom: BottomBar,
 }
 
-impl State {
+impl Frame {
     pub fn new() -> Self {
         Default::default()
     }
 }
 
-impl Component for State {
+impl Component for Frame {
     fn update(&mut self, message: &Message) -> anyhow::Result<Option<Message>> {
         if let Some(active_component) = self.active_component {
             self.components[active_component].update(message)?;

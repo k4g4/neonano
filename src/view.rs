@@ -5,12 +5,6 @@ use std::{
     ops::Add,
 };
 
-pub type Output = StdoutLock<'static>;
-
-pub fn get_output() -> Output {
-    io::stdout().lock()
-}
-
 #[derive(Copy, Clone, Default, Debug)]
 pub struct Point {
     pub x: u16,

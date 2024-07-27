@@ -1,18 +1,18 @@
-pub mod state;
+pub mod buffer;
+pub mod frame;
+pub mod screen;
+pub mod statusbars;
+pub mod window;
 
+use crate::core::{Out, Res};
 use crate::message::Message;
-use crate::view::Viewer;
-use state::State;
 
-#[enum_dispatch::enum_dispatch]
-pub trait Component {
-    fn update(&mut self, message: &Message) -> anyhow::Result<Option<Message>>;
-
-    fn view<'core>(&self, viewer: Viewer<'core>) -> anyhow::Result<Viewer<'core>>;
+pub struct Update {
+    messages: Vec<Message>,
 }
 
-#[enum_dispatch::enum_dispatch(Component)]
-#[derive(Debug)]
-pub enum ComponentHolder {
-    State,
+pub trait Component {
+    fn update(&mut self, message: &Message) -> Res<Update>;
+
+    fn view<'core>(&self, out: &'core mut Out, width: u16, height: u16) -> Res<&'core mut Out>;
 }

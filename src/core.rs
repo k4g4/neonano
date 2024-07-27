@@ -1,8 +1,7 @@
 use crate::{
-    component::{state::State, Component},
+    component::{frame::Frame, Component},
     input::Input,
     message::Message,
-    view::{self, Output, Point, Viewer},
 };
 use crossterm::{
     cursor::MoveTo,
@@ -10,41 +9,44 @@ use crossterm::{
     terminal::{self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
     QueueableCommand,
 };
-use std::io::Write;
+use std::io::{self, StdoutLock, Write};
+
+pub type Res<T> = anyhow::Result<T>;
+pub type Out = StdoutLock<'static>;
 
 pub struct Core {
-    state: State,
-    size: Point,
-    output: Output,
+    frame: Frame,
+    size: (u16, u16),
+    out: Out,
 }
 
 impl Core {
-    pub fn new() -> anyhow::Result<Self> {
+    pub fn new() -> Res<Self> {
         let (width, height) = terminal::size()?;
 
         terminal::enable_raw_mode()?;
 
-        let mut output = view::get_output();
-        if let Err(error) = output
+        let mut out = io::stdout().lock();
+        if let Err(error) = out
             .queue(EnterAlternateScreen)
-            .and_then(|output| output.queue(EnableMouseCapture))
-            .and_then(|output| output.flush())
+            .and_then(|out| out.queue(EnableMouseCapture))
+            .and_then(|out| out.flush())
         {
             terminal::disable_raw_mode()?;
             Err(error.into())
         } else {
             Ok(Self {
-                state: State::new(),
+                frame: Frame::new(),
                 size: Point {
                     x: width,
                     y: height,
                 },
-                output,
+                out,
             })
         }
     }
 
-    pub fn run(mut self) -> anyhow::Result<()> {
+    pub fn run(mut self) -> Res<()> {
         let input = Input::new();
         let mut updated = true;
 
