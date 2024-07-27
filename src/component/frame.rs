@@ -2,10 +2,10 @@ use crate::{
     component::{
         statusbars::{BottomBar, TopBar},
         window::Window,
-        Component,
+        Component, Update,
     },
+    core::{Out, Res},
     message::Message,
-    view::Viewer,
 };
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
@@ -23,20 +23,15 @@ impl Frame {
 }
 
 impl Component for Frame {
-    fn update(&mut self, message: &Message) -> anyhow::Result<Option<Message>> {
-        if let Some(active_component) = self.active_component {
-            self.components[active_component].update(message)?;
-        }
-
-        Ok(match message {
+    fn update(&mut self, message: &Message) -> Res<Update> {
+        let mut contents = String::new();
+        match message {
             Message::Event(event) => match event {
                 Event::FocusGained => {
                     //
-                    None
                 }
                 Event::FocusLost => {
                     //
-                    None
                 }
                 Event::Key(KeyEvent {
                     code,
@@ -48,71 +43,68 @@ impl Component for Frame {
                         if modifiers.is_empty() {
                             match code {
                                 KeyCode::Char(c) => {
-                                    self.contents.push(*c);
-                                    None
+                                    contents.push(*c);
                                 }
                                 KeyCode::Backspace => {
-                                    self.contents.pop();
-                                    None
+                                    contents.pop();
                                 }
                                 KeyCode::Tab => {
-                                    self.contents += "    ";
-                                    None
+                                    contents += "    ";
                                 }
                                 KeyCode::Enter => {
-                                    self.contents.push('\n');
-                                    None
+                                    contents.push('\n');
                                 }
-                                _ => None,
+                                _ => {}
                             }
                         } else if modifiers.contains(KeyModifiers::SHIFT) {
                             match code {
                                 KeyCode::Char(c) => {
-                                    self.contents.push(c.to_ascii_uppercase());
-                                    None
+                                    contents.push(c.to_ascii_uppercase());
                                 }
-                                _ => None,
+                                _ => {}
                             }
                         } else if modifiers.contains(KeyModifiers::CONTROL) {
                             match code {
-                                KeyCode::Char('c' | 'x') => Some(Message::Quit),
-                                _ => None,
+                                KeyCode::Char('c' | 'x') => {
+                                    Some(Message::Quit);
+                                }
+                                _ => {}
                             }
                         } else {
                             match code {
-                                _ => None,
+                                _ => {}
                             }
                         }
                     } else {
-                        None
+                        //
                     }
                 }
                 Event::Mouse(_) => {
                     //
-                    None
                 }
                 Event::Paste(_) => {
                     //
-                    None
                 }
                 Event::Resize(_, _) => {
                     //
-                    None
                 }
             },
-            _ => None,
-        })
+            _ => {}
+        }
+
+        self.window.update(message)
     }
 
-    fn view<'core>(&self, viewer: Viewer<'core>) -> anyhow::Result<Viewer<'core>> {
-        let viewer = viewer.vsplit(&self.components)?;
-        let mut lines = self.contents.split('\n');
-        let last_line = lines.next_back();
-        let viewer = lines.try_fold(viewer, |viewer, line| viewer.write(line))?;
-        if let Some(last_line) = last_line {
-            viewer.write(last_line)
-        } else {
-            Ok(viewer)
-        }
+    fn view<'core>(&self, out: &'core mut Out, width: u16, height: u16) -> Res<&'core mut Out> {
+        // let viewer = viewer.vsplit(&self.components)?;
+        // let mut lines = self.contents.split('\n');
+        // let last_line = lines.next_back();
+        // let viewer = lines.try_fold(viewer, |viewer, line| viewer.write(line))?;
+        // if let Some(last_line) = last_line {
+        //     viewer.write(last_line)
+        // } else {
+        //     Ok(viewer)
+        // }
+        Ok(out)
     }
 }

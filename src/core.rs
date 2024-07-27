@@ -16,8 +16,9 @@ pub type Out = StdoutLock<'static>;
 
 pub struct Core {
     frame: Frame,
-    size: (u16, u16),
     out: Out,
+    width: u16,
+    height: u16,
 }
 
 impl Core {
@@ -37,11 +38,9 @@ impl Core {
         } else {
             Ok(Self {
                 frame: Frame::new(),
-                size: Point {
-                    x: width,
-                    y: height,
-                },
                 out,
+                width,
+                height,
             })
         }
     }
@@ -54,24 +53,22 @@ impl Core {
             for event in input.read()? {
                 updated = true;
                 let mut message = Message::Event(event);
-                while let Some(new_message) = self.state.update(&message)? {
-                    match new_message {
-                        Message::Quit => {
-                            return Ok(());
-                        }
-                        new_message => {
-                            message = new_message;
-                        }
-                    }
-                }
+                self.frame.update(&message)?;
+                // while let Some(new_message) =  {
+                //     match new_message {
+                //         Message::Quit => {
+                //             return Ok(());
+                //         }
+                //         new_message => {
+                //             message = new_message;
+                //         }
+                //     }
+                // }
             }
             if updated {
-                self.output
-                    .queue(Clear(ClearType::All))?
-                    .queue(MoveTo(0, 0))?;
-                self.state
-                    .view(Viewer::new(&mut self.output, Default::default(), self.size))?;
-                self.output.flush()?;
+                self.out.queue(Clear(ClearType::All))?.queue(MoveTo(0, 0))?;
+                self.frame.view(&mut self.out, self.width, self.height)?;
+                self.out.flush()?;
             }
             updated = false;
         }
@@ -81,7 +78,7 @@ impl Core {
 impl Drop for Core {
     fn drop(&mut self) {
         let _ = self
-            .output
+            .out
             .queue(DisableMouseCapture)
             .and_then(|output| output.queue(LeaveAlternateScreen))
             .and_then(|output| output.flush());
