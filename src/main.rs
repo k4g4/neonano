@@ -2,7 +2,7 @@ mod component;
 mod core;
 mod input;
 mod message;
-mod view;
+mod utils;
 
 use core::Core;
 use std::fs::write;

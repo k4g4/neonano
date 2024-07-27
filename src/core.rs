@@ -52,8 +52,7 @@ impl Core {
         loop {
             for event in input.read()? {
                 updated = true;
-                let mut message = Message::Event(event);
-                self.frame.update(&message)?;
+                self.frame.update(&Message::Event(event))?;
                 // while let Some(new_message) =  {
                 //     match new_message {
                 //         Message::Quit => {

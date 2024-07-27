@@ -1,13 +1,28 @@
-#[derive(Clone, Default, Debug)]
-pub struct List<T>(Vec<Node<T>>);
+#[derive(Clone)]
+pub struct List<T> {
+    items: Vec<Node<T>>,
+    first: usize,
+    last: usize,
+}
 
+#[derive(Clone)]
 struct Node<T> {
     item: T,
     next: usize,
     prev: usize,
 }
 
-impl List {
+impl<T> Default for List<T> {
+    fn default() -> Self {
+        Self {
+            items: Default::default(),
+            first: 0,
+            last: 0,
+        }
+    }
+}
+
+impl<T> List<T> {
     pub fn new() -> Self {
         Default::default()
     }
@@ -19,12 +34,19 @@ impl List {
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
+
+    pub fn push_back(&mut self) {
+        todo!()
+    }
 }
 
+#[cfg(test)]
 mod tests {
+    use super::*;
+
     #[test]
     fn new_is_empty() {
-        assert!(List::new().is_empty())
+        assert!(List::<()>::new().is_empty())
     }
 
     #[test]
@@ -33,7 +55,7 @@ mod tests {
         list.push_back(1);
 
         assert_eq!(list.len(), 1);
-        assert_eq!(list.front(), 1);
+        assert_eq!(list.front(), 2);
         assert_eq!(list.back(), 1);
     }
 }
