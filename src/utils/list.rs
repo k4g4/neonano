@@ -1,4 +1,4 @@
-use std::{fmt, mem};
+use std::{cmp, fmt, iter::FusedIterator, mem};
 
 #[derive(Clone)]
 pub struct List<T> {
@@ -27,6 +27,13 @@ impl<T> Default for List<T> {
 impl<T> List<T> {
     pub fn new() -> Self {
         Default::default()
+    }
+
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            items: Vec::with_capacity(capacity),
+            ..Default::default()
+        }
     }
 
     pub fn len(&self) -> usize {
@@ -80,46 +87,134 @@ impl<T> List<T> {
 
 impl<T> FromIterator<T> for List<T> {
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
-        iter.into_iter().fold(List::new(), |mut list, item| {
+        let iter = iter.into_iter();
+        let capacity = match iter.size_hint() {
+            (_, Some(upper)) => upper,
+            (lower, _) => lower,
+        };
+
+        iter.fold(List::with_capacity(capacity), |mut list, item| {
             list.push_back(item);
             list
         })
     }
 }
 
-pub struct IntoIter<T>(List<T>, Option<usize>);
+impl<T> Extend<T> for List<T> {
+    fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
+        iter.into_iter().for_each(|item| self.push_back(item));
+    }
+}
+
+impl<'item, T: Copy> Extend<&'item T> for List<T> {
+    fn extend<I: IntoIterator<Item = &'item T>>(&mut self, iter: I) {
+        self.extend(iter.into_iter().copied())
+    }
+}
+
+pub enum IntoIter<T> {
+    Nonempty {
+        list: List<T>,
+        forward: usize,
+        backward: usize,
+    },
+    Empty,
+}
 
 impl<T> Iterator for IntoIter<T> {
     type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let IntoIter(list, at) = self;
+        let IntoIter::Nonempty {
+            list,
+            forward,
+            backward,
+        } = self
+        else {
+            return None;
+        };
+        let finished = forward == backward;
+        let Node { item, next, .. } = &list.items[*forward];
 
-        if list.is_empty() {
-            None
-        } else {
-            if let Some(i) = at {
-                let Node { item, next, .. } = &list.items[*i];
-                *at = if *i == list.back { None } else { Some(*next) };
+        *forward = *next;
 
-                // SAFETY: the iterator moves on to the next item and never visits
-                // this one again. When dropped, the inner list's items are forgotten
-                // to prevent double-drop.
-                Some(unsafe { (item as *const T).read() })
-            } else {
-                None
-            }
+        // SAFETY: the iterator moves on to the next item and never visits
+        // this one again. When dropped, the inner list's items are forgotten
+        // to prevent double-drop.
+        let item = unsafe { (item as *const T).read() };
+
+        if finished {
+            *self = IntoIter::Empty;
         }
+
+        Some(item)
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        (0, Some(self.0.len()))
+        (
+            0,
+            Some(match self {
+                IntoIter::Nonempty { list, .. } => list.len(),
+                IntoIter::Empty => 0,
+            }),
+        )
     }
 }
 
+impl<T> DoubleEndedIterator for IntoIter<T> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        let IntoIter::Nonempty {
+            list,
+            forward,
+            backward,
+        } = self
+        else {
+            return None;
+        };
+        let finished = forward == backward;
+        let Node { item, prev, .. } = &list.items[*backward];
+
+        *backward = *prev;
+
+        // SAFETY: the iterator moves on to the next item and never visits
+        // this one again. When dropped, the inner list's items are forgotten
+        // to prevent double-drop.
+        let item = unsafe { (item as *const T).read() };
+
+        if finished {
+            *self = IntoIter::Empty;
+        }
+
+        Some(item)
+    }
+}
+
+impl<T> FusedIterator for IntoIter<T> {}
+
 impl<T> Drop for IntoIter<T> {
     fn drop(&mut self) {
-        self.0.items.drain(..).for_each(mem::forget);
+        let IntoIter::Nonempty {
+            list,
+            forward,
+            backward,
+        } = self
+        else {
+            return;
+        };
+
+        while *forward != *backward {
+            let node = &list.items[*forward];
+
+            // SAFETY: reading and dropping items that were never returned from
+            // next() or next_back(). Now that every item has been read and dropped,
+            // mem::forget can be called on the entire list.
+            drop(unsafe { (&node.item as *const T).read() });
+            *forward = node.next;
+        }
+        let node = &list.items[*forward];
+        drop(unsafe { (&node.item as *const T).read() });
+
+        mem::forget(mem::take(list))
     }
 }
 
@@ -128,93 +223,225 @@ impl<T> IntoIterator for List<T> {
     type Item = <Self::IntoIter as Iterator>::Item;
 
     fn into_iter(self) -> Self::IntoIter {
-        let front = self.front;
-        IntoIter(self, Some(front))
+        if self.is_empty() {
+            IntoIter::Empty
+        } else {
+            let forward = self.front;
+            let backward = self.back;
+
+            IntoIter::Nonempty {
+                list: self,
+                forward,
+                backward,
+            }
+        }
     }
 }
 
-pub struct Iter<'list, T>(&'list List<T>, Option<usize>);
+pub enum Iter<'list, T> {
+    Nonempty {
+        list: &'list List<T>,
+        forward: usize,
+        backward: usize,
+    },
+    Empty,
+}
 
 impl<'list, T> Iterator for Iter<'list, T> {
     type Item = &'list T;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let Iter(list, at) = self;
+        let Iter::Nonempty {
+            list,
+            forward,
+            backward,
+        } = self
+        else {
+            return None;
+        };
+        let finished = forward == backward;
+        let Node { item, next, .. } = &list.items[*forward];
 
-        if list.is_empty() {
-            None
-        } else {
-            if let Some(i) = at {
-                let Node { item, next, .. } = &list.items[*i];
-                *at = if *i == list.back { None } else { Some(*next) };
+        *forward = *next;
 
-                Some(&item)
-            } else {
-                None
-            }
+        if finished {
+            *self = Iter::Empty;
         }
+        Some(item)
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        (0, Some(self.0.len()))
+        (
+            0,
+            Some(match self {
+                Iter::Nonempty { list, .. } => list.len(),
+                Iter::Empty => 0,
+            }),
+        )
     }
 }
+
+impl<'list, T> DoubleEndedIterator for Iter<'list, T> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        let Iter::Nonempty {
+            list,
+            forward,
+            backward,
+        } = self
+        else {
+            return None;
+        };
+        let finished = forward == backward;
+        let Node { item, prev, .. } = &list.items[*backward];
+
+        *backward = *prev;
+
+        if finished {
+            *self = Iter::Empty;
+        }
+        Some(item)
+    }
+}
+
+impl<'list, T> FusedIterator for Iter<'list, T> {}
 
 impl<'list, T> IntoIterator for &'list List<T> {
     type IntoIter = Iter<'list, T>;
     type Item = &'list T;
 
     fn into_iter(self) -> Self::IntoIter {
-        Iter(self, Some(self.front))
+        if self.is_empty() {
+            Iter::Empty
+        } else {
+            Iter::Nonempty {
+                list: self,
+                forward: self.front,
+                backward: self.back,
+            }
+        }
     }
 }
 
-pub struct IterMut<'list, T>(Option<&'list mut List<T>>, Option<usize>);
+pub enum IterMut<'list, T> {
+    Nonempty {
+        list: &'list mut List<T>,
+        forward: usize,
+        backward: usize,
+    },
+    Empty,
+}
 
 impl<'list, T> Iterator for IterMut<'list, T> {
     type Item = &'list mut T;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let IterMut(list, ref mut at) = self;
-        let list = list.take()?;
+        let IterMut::Nonempty {
+            list,
+            forward,
+            backward,
+        } = self
+        else {
+            return None;
+        };
+        let finished = forward == backward;
+        let Node { item, next, .. } = &mut list.items[*forward];
 
-        if list.is_empty() {
-            None
-        } else {
-            if let Some(i) = at {
-                let Node { item, next, .. } = &mut list.items[*i];
-                *at = if *i == list.back { None } else { Some(*next) };
+        *forward = *next;
 
-                // SAFETY: since 'at' now points to the next item, this item won't be aliased again
-                // by this iterator. Since it lives for 'list, there is no way to get another reference
-                // to it until this returned reference is dead.
-                let item = unsafe { &mut *(item as *mut _) };
-                self.0 = Some(list);
-                Some(item)
-            } else {
-                None
-            }
+        // SAFETY: since 'forward' now points to the next item, this item won't be aliased again
+        // by this iterator. Since it lives for 'list, there is no way to get another reference
+        // to it until this returned reference is dead.
+        let item_extended = unsafe { &mut *(item as *mut _) };
+
+        if finished {
+            *self = IterMut::Empty;
         }
+        Some(item_extended)
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        (0, self.0.as_ref().map(|list| list.len()))
+        (
+            0,
+            Some(match self {
+                IterMut::Nonempty { list, .. } => list.len(),
+                IterMut::Empty => 0,
+            }),
+        )
     }
 }
+
+impl<'list, T> DoubleEndedIterator for IterMut<'list, T> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        let IterMut::Nonempty {
+            list,
+            forward,
+            backward,
+        } = self
+        else {
+            return None;
+        };
+        let finished = forward == backward;
+        let Node { item, prev, .. } = &mut list.items[*backward];
+
+        *backward = *prev;
+
+        // SAFETY: since 'backward' now points to the next item, this item won't be aliased again
+        // by this iterator. Since it lives for 'list, there is no way to get another reference
+        // to it until this returned reference is dead.
+        let item_extended = unsafe { &mut *(item as *mut _) };
+
+        if finished {
+            *self = IterMut::Empty;
+        }
+        Some(item_extended)
+    }
+}
+
+impl<'list, T> FusedIterator for IterMut<'list, T> {}
 
 impl<'list, T> IntoIterator for &'list mut List<T> {
     type IntoIter = IterMut<'list, T>;
     type Item = &'list mut T;
 
     fn into_iter(self) -> Self::IntoIter {
-        let front = self.front;
-        IterMut(Some(self), Some(front))
+        if self.is_empty() {
+            IterMut::Empty
+        } else {
+            let forward = self.front;
+            let backward = self.back;
+
+            IterMut::Nonempty {
+                list: self,
+                forward,
+                backward,
+            }
+        }
     }
 }
 
 impl<T: fmt::Debug> fmt::Debug for List<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_list().entries(self).finish()
+    }
+}
+
+impl<T: PartialEq> PartialEq for List<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.iter().eq(other)
+    }
+}
+
+impl<T: Eq> Eq for List<T> {}
+
+impl<T: PartialOrd> PartialOrd for List<T> {
+    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
+        self.iter().partial_cmp(other)
+    }
+}
+
+impl<T: Ord> Ord for List<T> {
+    fn cmp(&self, other: &Self) -> cmp::Ordering {
+        self.iter().cmp(other)
     }
 }
 
@@ -280,6 +507,19 @@ mod tests {
     }
 
     #[test]
+    fn rev() {
+        let mut list = List::new();
+        list.push_back('C');
+        list.push_back('B');
+        list.push_back('A');
+        list.push_front('D');
+        list.push_front('E');
+
+        let letters: String = list.iter().rev().collect();
+        assert_eq!(letters, "ABCDE");
+    }
+
+    #[test]
     fn debug() {
         let mut list = List::new();
         list.push_back(2);
@@ -296,5 +536,37 @@ mod tests {
 
         let debug = format!("{list:?}");
         assert_eq!("[0, 1, 2, 3, 4, 6, 7, 8, 9]", debug);
+    }
+
+    #[test]
+    fn clone() {
+        let list: List<_> = (0..10).filter(|item| *item != 5).collect();
+
+        let list_clone = list.clone();
+        assert_eq!(list, list_clone);
+    }
+
+    #[test]
+    fn ord() {
+        let smaller = List::from_iter([1, 2, 3]);
+        let mut larger = List::new();
+        larger.push_back(2);
+        larger.push_back(4);
+        larger.push_front(1);
+
+        assert!(smaller < larger);
+        assert!(larger > smaller);
+    }
+
+    #[test]
+    fn extend() {
+        let mut list = List::from_iter("the quick brown fox".split_whitespace());
+        list.extend("jumps over the lazy dog".split_whitespace());
+
+        let words: Vec<_> = list.iter().copied().collect();
+        assert_eq!(
+            words.join(" "),
+            "the quick brown fox jumps over the lazy dog"
+        );
     }
 }
