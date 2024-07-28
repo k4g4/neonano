@@ -1,4 +1,4 @@
-use std::{cmp, fmt, iter::FusedIterator, mem};
+use std::{cmp, fmt, hash, iter, mem, ops};
 
 #[derive(Clone)]
 pub struct List<T> {
@@ -82,6 +82,46 @@ impl<T> List<T> {
 
     pub fn iter_mut(&mut self) -> IterMut<T> {
         self.into_iter()
+    }
+
+    pub fn cursor_front(&self) -> Option<Cursor<'_, T>> {
+        if self.is_empty() {
+            None
+        } else {
+            Some(Cursor {
+                list: self,
+                at: self.front,
+            })
+        }
+    }
+
+    pub fn cursor_front_mut(&mut self) -> Option<CursorMut<'_, T>> {
+        if self.is_empty() {
+            None
+        } else {
+            let at = self.front;
+            Some(CursorMut { list: self, at })
+        }
+    }
+
+    pub fn cursor_back(&self) -> Option<Cursor<'_, T>> {
+        if self.is_empty() {
+            None
+        } else {
+            Some(Cursor {
+                list: self,
+                at: self.back,
+            })
+        }
+    }
+
+    pub fn cursor_back_mut(&mut self) -> Option<CursorMut<'_, T>> {
+        if self.is_empty() {
+            None
+        } else {
+            let at = self.back;
+            Some(CursorMut { list: self, at })
+        }
     }
 }
 
@@ -189,7 +229,7 @@ impl<T> DoubleEndedIterator for IntoIter<T> {
     }
 }
 
-impl<T> FusedIterator for IntoIter<T> {}
+impl<T> iter::FusedIterator for IntoIter<T> {}
 
 impl<T> Drop for IntoIter<T> {
     fn drop(&mut self) {
@@ -303,7 +343,7 @@ impl<'list, T> DoubleEndedIterator for Iter<'list, T> {
     }
 }
 
-impl<'list, T> FusedIterator for Iter<'list, T> {}
+impl<'list, T> iter::FusedIterator for Iter<'list, T> {}
 
 impl<'list, T> IntoIterator for &'list List<T> {
     type IntoIter = Iter<'list, T>;
@@ -397,7 +437,7 @@ impl<'list, T> DoubleEndedIterator for IterMut<'list, T> {
     }
 }
 
-impl<'list, T> FusedIterator for IterMut<'list, T> {}
+impl<'list, T> iter::FusedIterator for IterMut<'list, T> {}
 
 impl<'list, T> IntoIterator for &'list mut List<T> {
     type IntoIter = IterMut<'list, T>;
@@ -442,6 +482,119 @@ impl<T: PartialOrd> PartialOrd for List<T> {
 impl<T: Ord> Ord for List<T> {
     fn cmp(&self, other: &Self) -> cmp::Ordering {
         self.iter().cmp(other)
+    }
+}
+
+impl<T: hash::Hash> hash::Hash for List<T> {
+    fn hash<H: hash::Hasher>(&self, state: &mut H) {
+        self.iter().for_each(|item| item.hash(state));
+    }
+}
+
+#[derive(Clone)]
+pub struct Cursor<'list, T> {
+    list: &'list List<T>,
+    at: usize,
+}
+
+impl<'list, T> Cursor<'list, T> {
+    pub fn next(&mut self) -> bool {
+        if self.at != self.list.back {
+            self.at = self.list.items[self.at].next;
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn prev(&mut self) -> bool {
+        if self.at != self.list.front {
+            self.at = self.list.items[self.at].prev;
+            true
+        } else {
+            false
+        }
+    }
+}
+
+impl<'list, T> ops::Deref for Cursor<'list, T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.list.items[self.at].item
+    }
+}
+
+pub struct CursorMut<'list, T> {
+    list: &'list mut List<T>,
+    at: usize,
+}
+
+impl<'list, T> CursorMut<'list, T> {
+    pub fn next(&mut self) -> bool {
+        if self.at != self.list.back {
+            self.at = self.list.items[self.at].next;
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn prev(&mut self) -> bool {
+        if self.at != self.list.front {
+            self.at = self.list.items[self.at].prev;
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn insert_after(&mut self, item: T) {
+        if self.at == self.list.back {
+            self.list.push_back(item);
+        } else {
+            let items = &mut self.list.items;
+            let next = items[self.at].next;
+            items.push(Node {
+                item,
+                next,
+                prev: self.at,
+            });
+            let new = items.len() - 1;
+            items[next].prev = new;
+            items[self.at].next = new;
+        }
+    }
+
+    pub fn insert_before(&mut self, item: T) {
+        if self.at == self.list.front {
+            self.list.push_front(item);
+        } else {
+            let items = &mut self.list.items;
+            let prev = items[self.at].prev;
+            items.push(Node {
+                item,
+                next: self.at,
+                prev,
+            });
+            let new = items.len() - 1;
+            items[prev].next = new;
+            items[self.at].prev = new;
+        }
+    }
+}
+
+impl<'list, T> ops::Deref for CursorMut<'list, T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.list.items[self.at].item
+    }
+}
+
+impl<'list, T> ops::DerefMut for CursorMut<'list, T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.list.items[self.at].item
     }
 }
 
@@ -568,5 +721,52 @@ mod tests {
             words.join(" "),
             "the quick brown fox jumps over the lazy dog"
         );
+    }
+
+    #[test]
+    fn cursor() {
+        let list: List<_> = [true, false, true, false, false].into_iter().collect();
+        let mut cursor = list.cursor_front().unwrap();
+        assert!(*cursor);
+        cursor.next();
+        assert!(!*cursor);
+        cursor.next();
+        assert!(*cursor);
+        cursor.next();
+        assert!(!*cursor);
+        cursor.next();
+        assert!(!*cursor);
+        cursor.prev();
+        assert!(!*cursor);
+        cursor.prev();
+        assert!(*cursor);
+    }
+
+    #[test]
+    fn cursor_backwards() {
+        let list: List<_> = "dlrow olleh".chars().collect();
+        let mut cursor = list.cursor_back().unwrap();
+        let mut message = String::new();
+
+        message.push(*cursor);
+        while cursor.prev() {
+            message.push(*cursor);
+        }
+
+        assert_eq!(message, "hello world");
+    }
+
+    #[test]
+    fn cursor_mut() {
+        let mut list: List<_> = "hello world".chars().collect();
+        let mut cursor = list.cursor_front_mut().unwrap();
+
+        cursor.make_ascii_uppercase();
+        while cursor.next() {
+            cursor.make_ascii_uppercase();
+        }
+
+        let message: String = list.into_iter().collect();
+        assert_eq!(message, "HELLO WORLD");
     }
 }
