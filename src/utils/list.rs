@@ -68,6 +68,52 @@ impl<T> List<T> {
         self.front = new_front;
     }
 
+    pub fn pop_back(&mut self) -> Option<T> {
+        if self.is_empty() {
+            None
+        } else {
+            let Node { item, prev, .. } = self.items.swap_remove(self.back);
+
+            if !self.is_empty() {
+                let swapped = self.back;
+                let Node { next, prev, .. } = self.items[swapped];
+
+                self.items[prev].next = swapped;
+                if self.front == self.len() - 1 {
+                    self.front = swapped;
+                } else {
+                    self.items[next].prev = swapped;
+                }
+            }
+            self.back = prev;
+
+            Some(item)
+        }
+    }
+
+    pub fn pop_front(&mut self) -> Option<T> {
+        if self.is_empty() {
+            None
+        } else {
+            let Node { item, next, .. } = self.items.swap_remove(self.front);
+
+            if !self.is_empty() {
+                let swapped = self.front;
+                let Node { next, prev, .. } = self.items[swapped];
+
+                self.items[next].prev = swapped;
+                if self.back == self.len() - 1 {
+                    self.back = swapped;
+                } else {
+                    self.items[prev].next = swapped;
+                }
+            }
+            self.front = next;
+
+            Some(item)
+        }
+    }
+
     pub fn front(&self) -> Option<&T> {
         self.items.get(self.front).map(|node| &node.item)
     }
@@ -121,6 +167,13 @@ impl<T> List<T> {
         } else {
             let at = self.back;
             Some(CursorMut { list: self, at })
+        }
+    }
+
+    pub fn extract_if<F: FnMut(&mut T) -> bool>(&mut self, filter: F) -> ExtractIf<'_, T, F> {
+        ExtractIf {
+            cursor: self.cursor_front_mut(),
+            filter,
         }
     }
 }
@@ -525,6 +578,14 @@ impl<'list, T> ops::Deref for Cursor<'list, T> {
     }
 }
 
+impl<'list, T> PartialEq for Cursor<'list, T> {
+    fn eq(&self, other: &Self) -> bool {
+        (&self.list as *const _) == (&other.list as *const _) && self.at == other.at
+    }
+}
+
+impl<'list, T> Eq for Cursor<'list, T> {}
+
 pub struct CursorMut<'list, T> {
     list: &'list mut List<T>,
     at: usize,
@@ -532,20 +593,20 @@ pub struct CursorMut<'list, T> {
 
 impl<'list, T> CursorMut<'list, T> {
     pub fn next(&mut self) -> bool {
-        if self.at != self.list.back {
+        if self.at == self.list.back {
+            false
+        } else {
             self.at = self.list.items[self.at].next;
             true
-        } else {
-            false
         }
     }
 
     pub fn prev(&mut self) -> bool {
-        if self.at != self.list.front {
+        if self.at == self.list.front {
+            false
+        } else {
             self.at = self.list.items[self.at].prev;
             true
-        } else {
-            false
         }
     }
 
@@ -582,6 +643,31 @@ impl<'list, T> CursorMut<'list, T> {
             items[self.at].prev = new;
         }
     }
+
+    pub fn remove(&mut self) -> Option<T> {
+        if self.at == self.list.front {
+            self.next();
+            self.list.pop_front()
+        } else if self.at == self.list.back {
+            self.prev();
+            self.list.pop_back()
+        } else {
+            let items = &mut self.list.items;
+            let Node { item, next, .. } = items.swap_remove(self.at);
+
+            {
+                let swapped = self.at;
+                let Node { next, prev, .. } = items[swapped];
+
+                items[prev].next = swapped;
+                items[next].prev = swapped;
+            }
+
+            self.at = next;
+
+            Some(item)
+        }
+    }
 }
 
 impl<'list, T> ops::Deref for CursorMut<'list, T> {
@@ -597,6 +683,35 @@ impl<'list, T> ops::DerefMut for CursorMut<'list, T> {
         &mut self.list.items[self.at].item
     }
 }
+
+pub struct ExtractIf<'list, T, F> {
+    cursor: Option<CursorMut<'list, T>>,
+    filter: F,
+}
+
+impl<'list, T, F> Iterator for ExtractIf<'list, T, F>
+where
+    F: FnMut(&mut T) -> bool,
+{
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut cursor = self.cursor.as_mut()?;
+
+        if cursor.list.is_empty() {
+            None
+        } else {
+            while !(self.filter)(&mut cursor) {
+                if !cursor.next() {
+                    return None;
+                }
+            }
+            cursor.remove()
+        }
+    }
+}
+
+impl<'list, T, F> iter::FusedIterator for ExtractIf<'list, T, F> where F: FnMut(&mut T) -> bool {}
 
 #[cfg(test)]
 mod tests {
