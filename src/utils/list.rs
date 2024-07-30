@@ -7,7 +7,7 @@ pub struct List<T> {
     back: usize,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct Node<T> {
     item: T,
     next: usize,
@@ -72,20 +72,22 @@ impl<T> List<T> {
         if self.is_empty() {
             None
         } else {
+            let end = self.len() - 1;
             let Node { item, prev, .. } = self.items.swap_remove(self.back);
 
-            if !self.is_empty() {
-                let swapped = self.back;
-                let Node { next, prev, .. } = self.items[swapped];
-
-                self.items[prev].next = swapped;
-                if self.front == self.len() - 1 {
+            let swapped = self.back;
+            if let Some(&Node { next, prev, .. }) = self.items.get(swapped) {
+                self.items[next].prev = swapped;
+                if self.front == end {
                     self.front = swapped;
                 } else {
-                    self.items[next].prev = swapped;
+                    self.items[prev].next = swapped;
                 }
             }
-            self.back = prev;
+
+            if prev != end {
+                self.back = prev;
+            }
 
             Some(item)
         }
@@ -95,20 +97,22 @@ impl<T> List<T> {
         if self.is_empty() {
             None
         } else {
+            let end = self.len() - 1;
             let Node { item, next, .. } = self.items.swap_remove(self.front);
 
-            if !self.is_empty() {
-                let swapped = self.front;
-                let Node { next, prev, .. } = self.items[swapped];
-
-                self.items[next].prev = swapped;
-                if self.back == self.len() - 1 {
+            let swapped = self.front;
+            if let Some(&Node { next, prev, .. }) = self.items.get(swapped) {
+                self.items[prev].next = swapped;
+                if self.back == end {
                     self.back = swapped;
                 } else {
-                    self.items[prev].next = swapped;
+                    self.items[next].prev = swapped;
                 }
             }
-            self.front = next;
+
+            if next != end {
+                self.front = next;
+            }
 
             Some(item)
         }
@@ -908,5 +912,30 @@ mod tests {
         assert_eq!(list.pop_back(), Some(2));
         assert_eq!(list.pop_back(), Some(1));
         assert!(list.pop_back().is_none());
+    }
+
+    #[test]
+    fn pop_front() {
+        let mut list = List::new();
+
+        assert!(list.pop_front().is_none());
+
+        list.push_front(0);
+        assert_eq!(list.pop_front(), Some(0));
+        assert!(list.pop_front().is_none());
+
+        list.push_back(1);
+        assert_eq!(list.pop_front(), Some(1));
+        assert!(list.pop_front().is_none());
+
+        list.extend([2, 3, 4]);
+        assert_eq!(list.pop_front(), Some(2));
+        list.push_back(5);
+        assert_eq!(list.pop_front(), Some(3));
+        list.push_front(1);
+        assert_eq!(list.pop_front(), Some(1));
+        assert_eq!(list.pop_front(), Some(4));
+        assert_eq!(list.pop_front(), Some(5));
+        assert!(list.pop_front().is_none());
     }
 }
