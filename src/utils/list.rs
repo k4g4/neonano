@@ -251,7 +251,7 @@ impl<T> IntoIter<T> {
         let item = unsafe { (item as *const T).read() };
 
         if finished {
-            mem::take(list);
+            mem::take(list).items.drain(..).for_each(mem::forget);
             mem::forget(mem::replace(self, IntoIter::Empty));
         }
 
