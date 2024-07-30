@@ -122,8 +122,16 @@ impl<T> List<T> {
         self.items.get(self.front).map(|node| &node.item)
     }
 
+    pub fn front_mut(&mut self) -> Option<&mut T> {
+        self.items.get_mut(self.front).map(|node| &mut node.item)
+    }
+
     pub fn back(&self) -> Option<&T> {
         self.items.get(self.back).map(|node| &node.item)
+    }
+
+    pub fn back_mut(&mut self) -> Option<&mut T> {
+        self.items.get_mut(self.back).map(|node| &mut node.item)
     }
 
     pub fn iter(&self) -> Iter<T> {
@@ -300,18 +308,18 @@ impl<T> Drop for IntoIter<T> {
         };
 
         while *forward != *backward {
-            let node = &list.items[*forward];
+            let Node { item, next, .. } = &list.items[*forward];
 
             // SAFETY: reading and dropping items that were never returned from
             // next() or next_back(). Now that every item has been read and dropped,
             // mem::forget can be called on the entire list.
-            drop(unsafe { (&node.item as *const T).read() });
-            *forward = node.next;
+            drop(unsafe { (item as *const T).read() });
+            *forward = *next;
         }
-        let node = &list.items[*forward];
-        drop(unsafe { (&node.item as *const T).read() });
+        let Node { item, .. } = &list.items[*forward];
+        drop(unsafe { (item as *const T).read() });
 
-        mem::forget(mem::take(list))
+        list.items.drain(..).for_each(mem::forget);
     }
 }
 
@@ -840,6 +848,20 @@ mod tests {
             words.join(" "),
             "the quick brown fox jumps over the lazy dog"
         );
+    }
+
+    #[test]
+    fn flatten_lists() {
+        let mut list = List::from_iter([List::from_iter([3, 4, 5]), List::from_iter([6, 7, 8])]);
+        list.push_front(List::from_iter([0, 1, 2]));
+        list.back_mut().unwrap().push_back(9);
+
+        let flattened: List<_> = list.into_iter().flatten().collect();
+        assert_eq!(flattened.len(), 10);
+
+        for (i, item) in flattened.into_iter().enumerate() {
+            assert_eq!(i, item);
+        }
     }
 
     #[test]
