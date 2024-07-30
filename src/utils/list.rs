@@ -884,4 +884,29 @@ mod tests {
         let message: String = list.into_iter().collect();
         assert_eq!(message, "HELLO WORLD");
     }
+
+    #[test]
+    fn pop_back() {
+        let mut list = List::new();
+
+        assert!(list.pop_back().is_none());
+
+        list.push_back(0);
+        assert_eq!(list.pop_back(), Some(0));
+        assert!(list.pop_back().is_none());
+
+        list.push_front(1);
+        assert_eq!(list.pop_back(), Some(1));
+        assert!(list.pop_back().is_none());
+
+        list.extend([2, 3, 4]);
+        assert_eq!(list.pop_back(), Some(4));
+        list.push_front(1);
+        assert_eq!(list.pop_back(), Some(3));
+        list.push_back(5);
+        assert_eq!(list.pop_back(), Some(5));
+        assert_eq!(list.pop_back(), Some(2));
+        assert_eq!(list.pop_back(), Some(1));
+        assert!(list.pop_back().is_none());
+    }
 }
