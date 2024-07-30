@@ -226,10 +226,8 @@ pub enum IntoIter<T> {
     Empty,
 }
 
-impl<T> Iterator for IntoIter<T> {
-    type Item = T;
-
-    fn next(&mut self) -> Option<Self::Item> {
+impl<T> IntoIter<T> {
+    fn next_inner(&mut self, rev: bool) -> Option<T> {
         let IntoIter::Nonempty {
             list,
             forward,
@@ -239,9 +237,13 @@ impl<T> Iterator for IntoIter<T> {
             return None;
         };
         let finished = forward == backward;
-        let Node { item, next, .. } = &list.items[*forward];
+        let Node { item, next, prev } = &list.items[if rev { *backward } else { *forward }];
 
-        *forward = *next;
+        if rev {
+            *backward = *prev;
+        } else {
+            *forward = *next;
+        }
 
         // SAFETY: the iterator moves on to the next item and never visits
         // this one again. When dropped, the inner list's items are forgotten
@@ -249,10 +251,19 @@ impl<T> Iterator for IntoIter<T> {
         let item = unsafe { (item as *const T).read() };
 
         if finished {
-            *self = IntoIter::Empty;
+            mem::take(list);
+            mem::forget(mem::replace(self, IntoIter::Empty));
         }
 
         Some(item)
+    }
+}
+
+impl<T> Iterator for IntoIter<T> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.next_inner(false)
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -268,29 +279,7 @@ impl<T> Iterator for IntoIter<T> {
 
 impl<T> DoubleEndedIterator for IntoIter<T> {
     fn next_back(&mut self) -> Option<Self::Item> {
-        let IntoIter::Nonempty {
-            list,
-            forward,
-            backward,
-        } = self
-        else {
-            return None;
-        };
-        let finished = forward == backward;
-        let Node { item, prev, .. } = &list.items[*backward];
-
-        *backward = *prev;
-
-        // SAFETY: the iterator moves on to the next item and never visits
-        // this one again. When dropped, the inner list's items are forgotten
-        // to prevent double-drop.
-        let item = unsafe { (item as *const T).read() };
-
-        if finished {
-            *self = IntoIter::Empty;
-        }
-
-        Some(item)
+        self.next_inner(true)
     }
 }
 
