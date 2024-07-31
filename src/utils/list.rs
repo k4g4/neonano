@@ -77,7 +77,9 @@ impl<T> List<T> {
 
             let swapped = self.back;
             if let Some(&Node { next, prev, .. }) = self.items.get(swapped) {
-                self.items[next].prev = swapped;
+                if next != swapped {
+                    self.items[next].prev = swapped;
+                }
                 if self.front == end {
                     self.front = swapped;
                 } else {
@@ -102,7 +104,9 @@ impl<T> List<T> {
 
             let swapped = self.front;
             if let Some(&Node { next, prev, .. }) = self.items.get(swapped) {
-                self.items[prev].next = swapped;
+                if prev != swapped {
+                    self.items[prev].next = swapped;
+                }
                 if self.back == end {
                     self.back = swapped;
                 } else {
