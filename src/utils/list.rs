@@ -991,4 +991,47 @@ mod tests {
 
         assert_eq!(String::from_iter(list), "oba");
     }
+
+    #[test]
+    fn cursor_insert() {
+        #[derive(PartialEq, Debug)]
+        enum Item {
+            First,
+            Second,
+            Third,
+            Fourth,
+            Fifth,
+            Sixth,
+        }
+        use Item::*;
+
+        let mut list = List::new();
+        list.push_back(Third);
+        list.push_front(First);
+        list.push_back(Fifth);
+
+        let mut cursor = list.cursor_front_mut().unwrap();
+        cursor.insert_after(Second);
+        cursor = list.cursor_back_mut().unwrap();
+        cursor.insert_before(Fourth);
+        cursor.insert_after(Sixth);
+        assert_eq!(
+            Vec::from_iter(list),
+            [First, Second, Third, Fourth, Fifth, Sixth]
+        );
+    }
+
+    #[test]
+    fn zst() {
+        #[derive(PartialEq)]
+        struct Nothing;
+
+        let mut list = List::from_iter([Nothing, Nothing, Nothing, Nothing]);
+        assert_eq!(list.len(), 4);
+        list.cursor_front_mut().unwrap().insert_before(Nothing);
+        assert_eq!(list.len(), 5);
+        assert!(list.iter().all(|nothing| *nothing == Nothing));
+        list.clear();
+        assert!(list.is_empty());
+    }
 }
