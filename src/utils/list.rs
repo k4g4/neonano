@@ -188,6 +188,12 @@ impl<T> List<T> {
             filter,
         }
     }
+
+    pub fn clear(&mut self) {
+        self.items.clear();
+        self.front = 0;
+        self.back = 0;
+    }
 }
 
 impl<T> FromIterator<T> for List<T> {
@@ -207,7 +213,14 @@ impl<T> FromIterator<T> for List<T> {
 
 impl<T> Extend<T> for List<T> {
     fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
-        iter.into_iter().for_each(|item| self.push_back(item));
+        let iter = iter.into_iter();
+        let additional = match iter.size_hint() {
+            (_, Some(upper)) => upper,
+            (lower, _) => lower,
+        };
+
+        self.items.reserve(additional);
+        iter.for_each(|item| self.push_back(item));
     }
 }
 
@@ -629,25 +642,46 @@ impl<'list, T> CursorMut<'list, T> {
     }
 
     pub fn remove(&mut self) -> Option<T> {
-        if self.at == self.list.front {
-            self.next();
-            self.list.pop_front()
+        if self.list.len() == 1 {
+            None
+        } else if self.at == self.list.front {
+            let item = self.list.pop_front()?;
+            self.at = self.list.front;
+
+            Some(item)
         } else if self.at == self.list.back {
-            self.prev();
-            self.list.pop_back()
+            let item = self.list.pop_back()?;
+            self.at = self.list.back;
+
+            Some(item)
         } else {
-            let items = &mut self.list.items;
-            let Node { item, next, .. } = items.swap_remove(self.at);
+            let List { items, front, back } = self.list;
+            let end = items.len() - 1;
 
-            {
-                let swapped = self.at;
-                let Node { next, prev, .. } = items[swapped];
+            let Node { next, prev, .. } = items[self.at];
 
-                items[prev].next = swapped;
-                items[next].prev = swapped;
+            items[next].prev = prev;
+            items[prev].next = next;
+
+            let item = items.swap_remove(self.at).item;
+            let swapped = self.at;
+
+            if let Some(&Node { next, prev, .. }) = items.get(swapped) {
+                if *front == end {
+                    *front = swapped;
+                } else {
+                    items[prev].next = swapped;
+                }
+                if *back == end {
+                    *back = swapped;
+                } else {
+                    items[next].prev = swapped;
+                }
             }
 
-            self.at = next;
+            if next != end {
+                self.at = next;
+            }
 
             Some(item)
         }
@@ -931,5 +965,26 @@ mod tests {
         assert_eq!(list.pop_front(), Some(4));
         assert_eq!(list.pop_front(), Some(5));
         assert!(list.pop_front().is_none());
+    }
+
+    #[test]
+    fn cursor_remove() {
+        let mut list = List::from_iter("bar".chars());
+        "foo".chars().rev().for_each(|c| list.push_front(c));
+
+        let mut forward = list.cursor_front_mut().unwrap();
+        forward.next();
+        assert_eq!(forward.remove(), Some('o'));
+        assert_eq!(*forward, 'o');
+
+        let mut backward = list.cursor_back_mut().unwrap();
+        assert_eq!(backward.remove(), Some('r'));
+        backward.prev();
+        backward.prev();
+        backward.prev();
+        assert_eq!(backward.remove(), Some('f'));
+        assert_eq!(*backward, 'o');
+
+        assert_eq!(String::from_iter(list), "oba");
     }
 }
