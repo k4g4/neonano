@@ -8,7 +8,7 @@ use crate::core::{Out, Res};
 use crate::message::Message;
 
 pub struct Update {
-    messages: Vec<Message>,
+    _messages: Vec<Message>,
 }
 
 pub trait Component {

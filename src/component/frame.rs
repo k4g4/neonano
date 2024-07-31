@@ -96,15 +96,8 @@ impl Component for Frame {
     }
 
     fn view<'core>(&self, out: &'core mut Out, width: u16, height: u16) -> Res<&'core mut Out> {
-        // let viewer = viewer.vsplit(&self.components)?;
-        // let mut lines = self.contents.split('\n');
-        // let last_line = lines.next_back();
-        // let viewer = lines.try_fold(viewer, |viewer, line| viewer.write(line))?;
-        // if let Some(last_line) = last_line {
-        //     viewer.write(last_line)
-        // } else {
-        //     Ok(viewer)
-        // }
-        Ok(out)
+        let out = self.window.view(out, width, height)?;
+        let out = self.top.view(out, width, height)?;
+        self.bottom.view(out, width, height)
     }
 }
