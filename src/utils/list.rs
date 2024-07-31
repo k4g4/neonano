@@ -341,10 +341,8 @@ pub enum Iter<'list, T> {
     Empty,
 }
 
-impl<'list, T> Iterator for Iter<'list, T> {
-    type Item = &'list T;
-
-    fn next(&mut self) -> Option<Self::Item> {
+impl<'list, T> Iter<'list, T> {
+    fn next_inner(&mut self, rev: bool) -> Option<&'list T> {
         let Iter::Nonempty {
             list,
             forward,
@@ -354,14 +352,26 @@ impl<'list, T> Iterator for Iter<'list, T> {
             return None;
         };
         let finished = forward == backward;
-        let Node { item, next, .. } = &list.items[*forward];
+        let Node { item, next, prev } = &list.items[if rev { *backward } else { *forward }];
 
-        *forward = *next;
+        if rev {
+            *backward = *prev;
+        } else {
+            *forward = *next;
+        }
 
         if finished {
             *self = Iter::Empty;
         }
         Some(item)
+    }
+}
+
+impl<'list, T> Iterator for Iter<'list, T> {
+    type Item = &'list T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.next_inner(false)
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -377,23 +387,7 @@ impl<'list, T> Iterator for Iter<'list, T> {
 
 impl<'list, T> DoubleEndedIterator for Iter<'list, T> {
     fn next_back(&mut self) -> Option<Self::Item> {
-        let Iter::Nonempty {
-            list,
-            forward,
-            backward,
-        } = self
-        else {
-            return None;
-        };
-        let finished = forward == backward;
-        let Node { item, prev, .. } = &list.items[*backward];
-
-        *backward = *prev;
-
-        if finished {
-            *self = Iter::Empty;
-        }
-        Some(item)
+        self.next_inner(true)
     }
 }
 
@@ -425,10 +419,8 @@ pub enum IterMut<'list, T> {
     Empty,
 }
 
-impl<'list, T> Iterator for IterMut<'list, T> {
-    type Item = &'list mut T;
-
-    fn next(&mut self) -> Option<Self::Item> {
+impl<'list, T> IterMut<'list, T> {
+    fn next_inner(&mut self, rev: bool) -> Option<&'list mut T> {
         let IterMut::Nonempty {
             list,
             forward,
@@ -438,19 +430,31 @@ impl<'list, T> Iterator for IterMut<'list, T> {
             return None;
         };
         let finished = forward == backward;
-        let Node { item, next, .. } = &mut list.items[*forward];
+        let Node { item, next, prev } = &mut list.items[if rev { *backward } else { *forward }];
 
-        *forward = *next;
+        if rev {
+            *backward = *prev;
+        } else {
+            *forward = *next;
+        }
 
-        // SAFETY: since 'forward' now points to the next item, this item won't be aliased again
-        // by this iterator. Since it lives for 'list, there is no way to get another reference
-        // to it until this returned reference is dead.
+        // SAFETY: since forward/backward now points to the next item, this item won't be aliased
+        // again by this iterator. Since it lives for 'list, there is no way to get another
+        // reference to it until this returned reference is dead.
         let item_extended = unsafe { &mut *(item as *mut _) };
 
         if finished {
             *self = IterMut::Empty;
         }
         Some(item_extended)
+    }
+}
+
+impl<'list, T> Iterator for IterMut<'list, T> {
+    type Item = &'list mut T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.next_inner(false)
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -466,28 +470,7 @@ impl<'list, T> Iterator for IterMut<'list, T> {
 
 impl<'list, T> DoubleEndedIterator for IterMut<'list, T> {
     fn next_back(&mut self) -> Option<Self::Item> {
-        let IterMut::Nonempty {
-            list,
-            forward,
-            backward,
-        } = self
-        else {
-            return None;
-        };
-        let finished = forward == backward;
-        let Node { item, prev, .. } = &mut list.items[*backward];
-
-        *backward = *prev;
-
-        // SAFETY: since 'backward' now points to the next item, this item won't be aliased again
-        // by this iterator. Since it lives for 'list, there is no way to get another reference
-        // to it until this returned reference is dead.
-        let item_extended = unsafe { &mut *(item as *mut _) };
-
-        if finished {
-            *self = IterMut::Empty;
-        }
-        Some(item_extended)
+        self.next_inner(true)
     }
 }
 
