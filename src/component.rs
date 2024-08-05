@@ -1,18 +1,17 @@
-pub mod buffer;
+pub mod content;
 pub mod frame;
 pub mod screen;
 pub mod statusbars;
 pub mod window;
 
-use crate::core::{Out, Res};
+use crate::core::Res;
 use crate::message::Message;
-
-pub struct Update {
-    _messages: Vec<Message>,
-}
+use crate::utils::out::{Bounds, Out};
 
 pub trait Component {
-    fn update(&mut self, message: &Message) -> Res<Update>;
+    fn update(&mut self, message: &Message) -> Res<Option<Message>>;
 
-    fn view<'core>(&self, out: &'core mut Out, width: u16, height: u16) -> Res<&'core mut Out>;
+    fn view(&self, out: &mut Out, bounds: Bounds, active: bool) -> Res<()>;
+
+    fn finally(&mut self) -> Res<()>;
 }

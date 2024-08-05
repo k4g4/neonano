@@ -2,14 +2,15 @@ use crate::{
     component::{
         statusbars::{BottomBar, TopBar},
         window::Window,
-        Component, Update,
+        Bounds, Component,
     },
-    core::{Out, Res},
-    message::Message,
+    core::Res,
+    message::{Input, Key, KeyCombo, Message},
+    pressed,
+    utils::out::Out,
 };
-use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
-#[derive(Default, Debug)]
+#[derive(Debug)]
 pub struct Frame {
     top: TopBar,
     window: Window,
@@ -17,87 +18,38 @@ pub struct Frame {
 }
 
 impl Frame {
-    pub fn new() -> Self {
-        Default::default()
+    pub fn new() -> Res<Self> {
+        Ok(Self {
+            top: TopBar::new()?,
+            window: Window::new()?,
+            bottom: BottomBar::new()?,
+        })
     }
 }
 
 impl Component for Frame {
-    fn update(&mut self, message: &Message) -> Res<Update> {
-        let mut contents = String::new();
-        match message {
-            Message::Event(event) => match event {
-                Event::FocusGained => {
-                    //
-                }
-                Event::FocusLost => {
-                    //
-                }
-                Event::Key(KeyEvent {
-                    code,
-                    kind,
-                    modifiers,
-                    ..
-                }) => {
-                    if *kind == KeyEventKind::Press {
-                        if modifiers.is_empty() {
-                            match code {
-                                KeyCode::Char(c) => {
-                                    contents.push(*c);
-                                }
-                                KeyCode::Backspace => {
-                                    contents.pop();
-                                }
-                                KeyCode::Tab => {
-                                    contents += "    ";
-                                }
-                                KeyCode::Enter => {
-                                    contents.push('\n');
-                                }
-                                _ => {}
-                            }
-                        } else if modifiers.contains(KeyModifiers::SHIFT) {
-                            match code {
-                                KeyCode::Char(c) => {
-                                    contents.push(c.to_ascii_uppercase());
-                                }
-                                _ => {}
-                            }
-                        } else if modifiers.contains(KeyModifiers::CONTROL) {
-                            match code {
-                                KeyCode::Char('c' | 'x') => {
-                                    Some(Message::Quit);
-                                }
-                                _ => {}
-                            }
-                        } else {
-                            match code {
-                                _ => {}
-                            }
-                        }
-                    } else {
-                        //
-                    }
-                }
-                Event::Mouse(_) => {
-                    //
-                }
-                Event::Paste(_) => {
-                    //
-                }
-                Event::Resize(_, _) => {
-                    //
-                }
-            },
-            _ => {}
-        }
+    fn update(&mut self, message: &Message) -> Res<Option<Message>> {
+        let update = match message {
+            pressed!(Key::Char('c' | 'x'), ctrl) => Some(Message::Quit),
+            _ => None,
+        };
 
-        self.window.update(message)
+        if update.is_some() {
+            Ok(update)
+        } else {
+            self.window.update(message)
+        }
     }
 
-    fn view<'core>(&self, out: &'core mut Out, width: u16, height: u16) -> Res<&'core mut Out> {
-        let out = self.window.view(out, width, height)?;
-        let out = self.top.view(out, width, height)?;
-        self.bottom.view(out, width, height)
+    fn view(&self, out: &mut Out, bounds: Bounds, _active: bool) -> Res<()> {
+        self.window.view(out, bounds, true)?;
+        self.top.view(out, bounds, true)?;
+        self.bottom.view(out, bounds, true)
+    }
+
+    fn finally(&mut self) -> Res<()> {
+        self.window.finally()?;
+        self.top.finally()?;
+        self.bottom.finally()
     }
 }

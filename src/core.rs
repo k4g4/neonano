@@ -1,18 +1,18 @@
 use crate::{
     component::{frame::Frame, Component},
-    input::Input,
+    input::InputReader,
     message::Message,
+    utils::out::{Bounds, Out},
 };
 use crossterm::{
-    cursor::MoveTo,
+    cursor::{Hide, MoveTo},
     event::{DisableMouseCapture, EnableMouseCapture},
-    terminal::{self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{self, EnterAlternateScreen, LeaveAlternateScreen},
     QueueableCommand,
 };
-use std::io::{self, StdoutLock, Write};
+use std::io::{self, Write};
 
 pub type Res<T> = anyhow::Result<T>;
-pub type Out = StdoutLock<'static>;
 
 pub struct Core {
     frame: Frame,
@@ -37,7 +37,7 @@ impl Core {
             Err(error.into())
         } else {
             Ok(Self {
-                frame: Frame::new(),
+                frame: Frame::new()?,
                 out,
                 width,
                 height,
@@ -46,29 +46,49 @@ impl Core {
     }
 
     pub fn run(mut self) -> Res<()> {
-        let input = Input::new();
+        let input_reader = InputReader::new();
         let mut updated = true;
 
-        loop {
-            for event in input.read()? {
-                updated = true;
-                self.frame.update(&Message::Event(event))?;
-                // while let Some(new_message) =  {
-                //     match new_message {
-                //         Message::Quit => {
-                //             return Ok(());
-                //         }
-                //         new_message => {
-                //             message = new_message;
-                //         }
-                //     }
-                // }
+        self.out.queue(Hide)?;
+
+        'runtime: loop {
+            for event in input_reader.read()? {
+                if let Ok(input) = event.try_into() {
+                    updated = true;
+
+                    let mut quit = false;
+                    let mut message = Message::Input(input);
+
+                    while let Some(returned_message) = self.frame.update(&message)? {
+                        message = match returned_message {
+                            Message::Input(_) => anyhow::bail!("input returned from update"),
+                            Message::Quit => {
+                                quit = true;
+                                Message::Quit
+                            }
+                            other => other,
+                        }
+                    }
+
+                    if quit {
+                        break 'runtime Ok(());
+                    }
+                }
             }
+
             if updated {
-                self.out.queue(Clear(ClearType::All))?.queue(MoveTo(0, 0))?;
-                self.frame.view(&mut self.out, self.width, self.height)?;
+                self.out.queue(MoveTo(0, 0))?;
+                let bounds = Bounds {
+                    x0: 0,
+                    y0: 0,
+                    x1: self.width,
+                    y1: self.height,
+                };
+                self.frame.view(&mut self.out, bounds, true)?;
                 self.out.flush()?;
+                self.frame.finally();
             }
+
             updated = false;
         }
     }

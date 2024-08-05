@@ -7,9 +7,9 @@ use std::{
     thread::{self, JoinHandle},
 };
 
-pub struct Input(Cell<Option<JoinHandle<Res<()>>>>, Receiver<Event>);
+pub struct InputReader(Cell<Option<JoinHandle<Res<()>>>>, Receiver<Event>);
 
-impl Input {
+impl InputReader {
     pub fn new() -> Self {
         let (sender, receiver) = mpsc::channel();
 

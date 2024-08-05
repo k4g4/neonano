@@ -1,78 +1,126 @@
+use anyhow::Context;
+
 use crate::{
-    component::{buffer::Buffer, Component, Update},
-    core::{Out, Res},
+    component::{content::Content, Bounds, Component},
+    core::Res,
     message::Message,
+    utils::out::Out,
 };
 
-#[derive(Copy, Clone, Default, Debug)]
-enum Active {
-    #[default]
-    First,
-    _Second,
-    _Third,
-}
-
-#[derive(Clone, Default, Debug)]
+#[derive(Clone, Debug)]
 pub struct Screen {
     columns: [Option<Column>; 3],
-    _active: Active,
+    active: usize,
+}
+
+impl Screen {
+    pub fn new() -> Res<Self> {
+        Ok(Self {
+            columns: [Some(Column::new()?), None, None],
+            active: 0,
+        })
+    }
+
+    fn len(&self) -> usize {
+        self.columns.iter().flatten().count()
+    }
 }
 
 impl Component for Screen {
-    fn update(&mut self, message: &Message) -> Res<Update> {
-        match message {
-            Message::Event(_) => todo!(),
-            Message::Quit => todo!(),
-        }
+    fn update(&mut self, message: &Message) -> Res<Option<Message>> {
+        self.columns[self.active]
+            .as_mut()
+            .context("column should be Some")?
+            .update(message)
     }
 
-    fn view<'core>(&self, out: &'core mut Out, width: u16, height: u16) -> Res<&'core mut Out> {
+    fn view(&self, out: &mut Out, bounds: Bounds, active: bool) -> Res<()> {
         self.columns
             .iter()
             .flatten()
-            .try_fold(out, |out, column| column.view(out, width, height))
+            .enumerate()
+            .try_for_each(|(i, column)| column.view(out, bounds, active && i == self.active))
+    }
+
+    fn finally(&mut self) -> Res<()> {
+        self.columns
+            .iter_mut()
+            .flatten()
+            .try_for_each(Component::finally)
     }
 }
 
-#[derive(Clone, Default, Debug)]
+#[derive(Clone, Debug)]
 struct Column {
     tiles: [Option<Tile>; 3],
-    _active: Active,
+    active: usize,
+}
+
+impl Column {
+    fn new() -> Res<Self> {
+        Ok(Self {
+            tiles: [Some(Tile::new()?), None, None],
+            active: 0,
+        })
+    }
+
+    fn len(&self) -> usize {
+        self.tiles.iter().flatten().count()
+    }
 }
 
 impl Component for Column {
-    fn update(&mut self, message: &Message) -> Res<Update> {
-        match message {
-            Message::Event(_) => todo!(),
-            Message::Quit => todo!(),
-        }
+    fn update(&mut self, message: &Message) -> Res<Option<Message>> {
+        self.tiles[self.active]
+            .as_mut()
+            .context("tile should be Some")?
+            .update(message)
     }
 
-    fn view<'core>(&self, out: &'core mut Out, width: u16, height: u16) -> Res<&'core mut Out> {
+    fn view(&self, out: &mut Out, bounds: Bounds, active: bool) -> Res<()> {
         self.tiles
             .iter()
             .flatten()
-            .try_fold(out, |out, tile| tile.view(out, width, height))
+            .enumerate()
+            .try_for_each(|(i, tile)| tile.view(out, bounds, active && i == self.active))
+    }
+
+    fn finally(&mut self) -> Res<()> {
+        self.tiles
+            .iter_mut()
+            .flatten()
+            .try_for_each(Component::finally)
     }
 }
 
-#[derive(Clone, Default, Debug)]
+#[derive(Clone, Debug)]
 struct Tile {
-    buffers: Vec<Buffer>,
-    _active: usize,
+    content: Vec<Content>,
+    active: usize,
+}
+
+impl Tile {
+    fn new() -> Res<Self> {
+        Ok(Self {
+            content: vec![Content::new()?],
+            active: 0,
+        })
+    }
 }
 
 impl Component for Tile {
-    fn update(&mut self, message: &Message) -> Res<Update> {
-        match message {
-            Message::Event(_) => todo!(),
-            Message::Quit => todo!(),
-        }
+    fn update(&mut self, message: &Message) -> Res<Option<Message>> {
+        self.content[self.active].update(message)
     }
 
-    fn view<'core>(&self, out: &'core mut Out, width: u16, height: u16) -> Res<&'core mut Out> {
-        self.buffers
+    fn view(&self, out: &mut Out, bounds: Bounds, active: bool) -> Res<()> {
+        self.content
             .iter()
-            .try_fold(out, |out, buffer| buffer.view(out, width, height))
+            .enumerate()
+            .try_for_each(|(i, content)| content.view(out, bounds, active && i == self.active))
+    }
+
+    fn finally(&mut self) -> Res<()> {
+        self.content.iter_mut().try_for_each(Component::finally)
     }
 }
