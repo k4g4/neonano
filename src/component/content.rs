@@ -7,7 +7,7 @@ use crate::{
 };
 use anyhow::Context;
 use crossterm::{
-    cursor::{MoveDown, MoveToColumn},
+    cursor::{EnableBlinking, Hide, MoveDown, MoveToColumn, MoveToRow, Show},
     style::{Color, Print, ResetColor, SetBackgroundColor, SetForegroundColor},
     QueueableCommand,
 };
@@ -170,6 +170,8 @@ impl Component for FilePicker {
             clear(out, bounds)?;
         }
 
+        out.queue(Hide)?;
+
         for (i, dir) in self.dirs.iter().enumerate() {
             let highlighted = active && i == self.selected;
 
@@ -219,14 +221,43 @@ impl Buffer {
             refresh: true,
         })
     }
+
+    fn current_row(&self) -> Res<&Row> {
+        self.below.front().context("below is never empty")
+    }
+
+    fn current_row_mut(&mut self) -> Res<&mut Row> {
+        self.below.front_mut().context("below is never empty")
+    }
 }
 
 impl Component for Buffer {
     fn update(&mut self, message: &Message) -> Res<Option<Message>> {
-        self.below
-            .front_mut()
-            .context("below is never empty")?
-            .update(message)
+        match message {
+            pressed!(Key::Up) => {
+                if let Some(mut row) = self.above.pop_back() {
+                    let prev_active = self.current_row()?.active;
+                    row.active = prev_active.clamp(0, row.chars.len().saturating_sub(1));
+                    self.below.push_front(row);
+                }
+                Ok(None)
+            }
+
+            pressed!(Key::Down) => {
+                let row = self.below.pop_front().context("below is never empty")?;
+                if self.below.is_empty() {
+                    self.below.push_front(row);
+                } else {
+                    let prev_active = row.active;
+                    self.above.push_back(row);
+                    self.current_row_mut()?.active =
+                        prev_active.clamp(0, self.current_row()?.chars.len().saturating_sub(1));
+                }
+                Ok(None)
+            }
+
+            _ => self.current_row_mut()?.update(message),
+        }
     }
 
     fn view(&self, out: &mut Out, bounds: Bounds, active: bool) -> Res<()> {
@@ -236,9 +267,19 @@ impl Component for Buffer {
 
         let rows = self.above.iter().chain(&self.below);
 
-        for (i, row) in rows.enumerate().take((bounds.y1 - bounds.y0).into()) {
-            row.view(out, bounds, active && i == self.above.len())?;
+        for row in rows.take((bounds.y1 - bounds.y0).into()) {
+            row.view(out, bounds, false)?;
             out.queue(MoveDown(1))?.queue(MoveToColumn(bounds.x0))?;
+        }
+
+        if active {
+            let row = bounds.x0 + <u16>::try_from(self.above.len())?;
+            let column = self.current_row()?.active.try_into()?;
+
+            out.queue(MoveToRow(row))?
+                .queue(MoveToColumn(column))?
+                .queue(Show)?
+                .queue(EnableBlinking)?;
         }
 
         Ok(())
@@ -254,19 +295,42 @@ impl Component for Buffer {
 #[derive(Clone, Default, Debug)]
 struct Row {
     chars: Vec<char>,
-    active: Option<usize>,
+    active: usize,
 }
 
 impl Component for Row {
     fn update(&mut self, message: &Message) -> Res<Option<Message>> {
-        Ok(None)
+        match message {
+            pressed!(Key::Left) => {
+                self.active = self.active.saturating_sub(1);
+                Ok(None)
+            }
+
+            pressed!(Key::Right) => {
+                self.active = (self.chars.len().saturating_sub(1)).min(self.active + 1);
+                Ok(None)
+            }
+
+            pressed!(Key::Home) => {
+                self.active = 0;
+                Ok(None)
+            }
+
+            pressed!(Key::End) => {
+                self.active = self.chars.len().saturating_sub(1);
+                Ok(None)
+            }
+
+            _ => Ok(None),
+        }
     }
 
-    fn view(&self, out: &mut Out, bounds: Bounds, active: bool) -> Res<()> {
-        self.chars
-            .iter()
-            .try_for_each(|c| out.queue(Print(*c)).map(|_| ()))
-            .context("failed to print row")
+    fn view(&self, out: &mut Out, _bounds: Bounds, _active: bool) -> Res<()> {
+        for &c in &self.chars {
+            out.queue(Print(c))?;
+        }
+
+        Ok(())
     }
 
     fn finally(&mut self) -> Res<()> {
@@ -277,8 +341,8 @@ impl Component for Row {
 impl From<&str> for Row {
     fn from(value: &str) -> Self {
         Self {
-            chars: value.chars().collect(),
-            active: None,
+            chars: value.chars().chain(iter::once(' ')).collect(),
+            active: 0,
         }
     }
 }

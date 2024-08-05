@@ -35,11 +35,26 @@ impl Component for Screen {
     }
 
     fn view(&self, out: &mut Out, bounds: Bounds, active: bool) -> Res<()> {
-        self.columns
+        let inactive_columns = self
+            .columns
             .iter()
             .flatten()
             .enumerate()
-            .try_for_each(|(i, column)| column.view(out, bounds, active && i == self.active))
+            .filter(|&(i, _)| !active || i != self.active)
+            .map(|(_, column)| column);
+
+        for column in inactive_columns {
+            column.view(out, bounds, false)?;
+        }
+
+        if active {
+            self.columns[self.active]
+                .as_ref()
+                .context("column should be Some")?
+                .view(out, bounds, true)?;
+        }
+
+        Ok(())
     }
 
     fn finally(&mut self) -> Res<()> {
@@ -78,11 +93,26 @@ impl Component for Column {
     }
 
     fn view(&self, out: &mut Out, bounds: Bounds, active: bool) -> Res<()> {
-        self.tiles
+        let inactive_tiles = self
+            .tiles
             .iter()
             .flatten()
             .enumerate()
-            .try_for_each(|(i, tile)| tile.view(out, bounds, active && i == self.active))
+            .filter(|&(i, _)| !active || i != self.active)
+            .map(|(_, tile)| tile);
+
+        for column in inactive_tiles {
+            column.view(out, bounds, false)?;
+        }
+
+        if active {
+            self.tiles[self.active]
+                .as_ref()
+                .context("tile should be Some")?
+                .view(out, bounds, true)?;
+        }
+
+        Ok(())
     }
 
     fn finally(&mut self) -> Res<()> {
@@ -114,10 +144,7 @@ impl Component for Tile {
     }
 
     fn view(&self, out: &mut Out, bounds: Bounds, active: bool) -> Res<()> {
-        self.content
-            .iter()
-            .enumerate()
-            .try_for_each(|(i, content)| content.view(out, bounds, active && i == self.active))
+        self.content[self.active].view(out, bounds, active)
     }
 
     fn finally(&mut self) -> Res<()> {

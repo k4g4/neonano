@@ -49,8 +49,6 @@ impl Core {
         let input_reader = InputReader::new();
         let mut updated = true;
 
-        self.out.queue(Hide)?;
-
         'runtime: loop {
             for event in input_reader.read()? {
                 if let Ok(input) = event.try_into() {
@@ -77,7 +75,7 @@ impl Core {
             }
 
             if updated {
-                self.out.queue(MoveTo(0, 0))?;
+                self.out.queue(MoveTo(0, 0))?.queue(Hide)?;
                 let bounds = Bounds {
                     x0: 0,
                     y0: 0,
@@ -86,7 +84,7 @@ impl Core {
                 };
                 self.frame.view(&mut self.out, bounds, true)?;
                 self.out.flush()?;
-                self.frame.finally();
+                self.frame.finally()?;
             }
 
             updated = false;

@@ -11,7 +11,7 @@ fn main() {
     write(
         "error",
         if let Err(error) = Core::new().and_then(Core::run) {
-            error.to_string()
+            format!("{error}\n\n{}", error.backtrace())
         } else {
             Default::default()
         },
