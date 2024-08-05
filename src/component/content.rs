@@ -309,9 +309,15 @@ impl Component for Buffer {
             clear(out, bounds)?;
         }
 
-        let rows = self.above.iter().chain(&self.below);
+        for row in &self.above {
+            row.view(out, bounds, false)?;
+            out.queue(MoveDown(1))?.queue(MoveToColumn(bounds.x0))?;
+        }
 
-        for row in rows.take((bounds.y1 - bounds.y0).into()) {
+        self.current_row()?.view(out, bounds, true)?;
+        out.queue(MoveDown(1))?.queue(MoveToColumn(bounds.x0))?;
+
+        for row in self.below.iter().skip(1) {
             row.view(out, bounds, false)?;
             out.queue(MoveDown(1))?.queue(MoveToColumn(bounds.x0))?;
         }
@@ -439,13 +445,16 @@ impl Component for Row {
         }
     }
 
-    fn view(&self, out: &mut Out, Bounds { x0, x1, .. }: Bounds, _active: bool) -> Res<()> {
+    fn view(&self, out: &mut Out, Bounds { x0, x1, .. }: Bounds, active: bool) -> Res<()> {
         for &c in self.chars.iter().take((x1 - x0).into()) {
             out.queue(Print(c))?;
         }
-        let remainder = (x1 - x0).saturating_sub(self.chars.len().try_into().unwrap_or(u16::MAX));
-        for _ in 0..remainder {
-            out.queue(Print(' '))?;
+        if active {
+            let remainder =
+                (x1 - x0).saturating_sub(self.chars.len().try_into().unwrap_or(u16::MAX));
+            for _ in 0..remainder {
+                out.queue(Print(' '))?;
+            }
         }
 
         Ok(())
