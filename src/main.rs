@@ -1,6 +1,5 @@
 mod component;
 mod core;
-mod input;
 mod message;
 mod utils;
 

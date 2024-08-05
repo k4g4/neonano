@@ -97,6 +97,15 @@ macro_rules! pressed {
         Message::Input(Input::KeyCombo(KeyCombo { key: $key, .. }))
     };
 
+    ($key:pat, shift + ctrl) => {
+        Message::Input(Input::KeyCombo(KeyCombo {
+            key: $key,
+            shift: true,
+            ctrl: true,
+            ..
+        }))
+    };
+
     ($key:pat, ctrl) => {
         Message::Input(Input::KeyCombo(KeyCombo {
             key: $key,

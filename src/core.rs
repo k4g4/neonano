@@ -1,8 +1,10 @@
 use crate::{
     component::{frame::Frame, Component},
-    input::InputReader,
     message::Message,
-    utils::out::{Bounds, Out},
+    utils::{
+        input::InputReader,
+        out::{Bounds, Out},
+    },
 };
 use crossterm::{
     cursor::{Hide, MoveTo},

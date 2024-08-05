@@ -222,6 +222,10 @@ impl Buffer {
         })
     }
 
+    fn pop_current_row(&mut self) -> Res<Row> {
+        self.below.pop_front().context("below is never empty")
+    }
+
     fn current_row(&self) -> Res<&Row> {
         self.below.front().context("below is never empty")
     }
@@ -240,11 +244,12 @@ impl Component for Buffer {
                     row.active = prev_active.clamp(0, row.chars.len().saturating_sub(1));
                     self.below.push_front(row);
                 }
+
                 Ok(None)
             }
 
             pressed!(Key::Down) => {
-                let row = self.below.pop_front().context("below is never empty")?;
+                let row = self.pop_current_row()?;
                 if self.below.is_empty() {
                     self.below.push_front(row);
                 } else {
@@ -253,6 +258,45 @@ impl Component for Buffer {
                     self.current_row_mut()?.active =
                         prev_active.clamp(0, self.current_row()?.chars.len().saturating_sub(1));
                 }
+
+                Ok(None)
+            }
+
+            pressed!(Key::Enter, shift + ctrl) => {
+                self.refresh = true;
+                self.below.push_front(Default::default());
+
+                Ok(None)
+            }
+
+            pressed!(Key::Enter, ctrl) => {
+                self.refresh = true;
+                let row = self.pop_current_row()?;
+                self.above.push_back(row);
+                self.below.push_front(Default::default());
+
+                Ok(None)
+            }
+
+            pressed!(Key::Enter) => {
+                self.refresh = true;
+                let mut row = self.pop_current_row()?;
+                let new_row = row.split();
+                self.above.push_back(row);
+                self.below.push_front(new_row);
+
+                Ok(None)
+            }
+
+            pressed!(Key::Backspace) if self.current_row()?.active == 0 => {
+                if let Some(mut row) = self.above.pop_back() {
+                    self.refresh = true;
+                    let old_row = self.pop_current_row()?;
+                    row.active = row.chars.len().saturating_sub(1);
+                    row.chars.extend(old_row.chars);
+                    self.below.push_front(row);
+                }
+
                 Ok(None)
             }
 
@@ -274,7 +318,7 @@ impl Component for Buffer {
 
         if active {
             let row = bounds.x0 + <u16>::try_from(self.above.len())?;
-            let column = self.current_row()?.active.try_into()?;
+            let column = bounds.y0 + <u16>::try_from(self.current_row()?.active)?;
 
             out.queue(MoveToRow(row))?
                 .queue(MoveToColumn(column))?
@@ -298,26 +342,96 @@ struct Row {
     active: usize,
 }
 
+impl Row {
+    fn split(&mut self) -> Self {
+        Self {
+            chars: self.chars.split_off(self.active),
+            active: 0,
+        }
+    }
+}
+
 impl Component for Row {
     fn update(&mut self, message: &Message) -> Res<Option<Message>> {
+        let nonalphanum = |&c: &char| !c.is_alphanumeric();
+
         match message {
+            pressed!(Key::Left, ctrl) => {
+                self.active = if let Some(backward) =
+                    self.chars[..self.active].iter().rev().position(nonalphanum)
+                {
+                    self.active - backward - 1
+                } else {
+                    0
+                };
+
+                Ok(None)
+            }
+
             pressed!(Key::Left) => {
                 self.active = self.active.saturating_sub(1);
                 Ok(None)
             }
 
+            pressed!(Key::Right, ctrl) => {
+                self.active = if let Some(forward) =
+                    self.chars[self.active + 1..].iter().position(nonalphanum)
+                {
+                    self.active + forward + 1
+                } else {
+                    self.chars.len().saturating_sub(1)
+                };
+
+                Ok(None)
+            }
+
             pressed!(Key::Right) => {
                 self.active = (self.chars.len().saturating_sub(1)).min(self.active + 1);
+
                 Ok(None)
             }
 
             pressed!(Key::Home) => {
                 self.active = 0;
+
                 Ok(None)
             }
 
             pressed!(Key::End) => {
                 self.active = self.chars.len().saturating_sub(1);
+
+                Ok(None)
+            }
+
+            &pressed!(Key::Char(c)) => {
+                self.chars.insert(self.active, c);
+                self.active += 1;
+
+                Ok(None)
+            }
+
+            pressed!(Key::Backspace, ctrl) => {
+                let prev_active = self.active;
+
+                self.active = if let Some(backward) =
+                    self.chars[..self.active].iter().rev().position(nonalphanum)
+                {
+                    self.active - backward - 1
+                } else {
+                    0
+                };
+
+                self.chars.drain(self.active..prev_active);
+
+                Ok(None)
+            }
+
+            pressed!(Key::Backspace) => {
+                if self.active > 0 {
+                    self.chars.remove(self.active - 1);
+                    self.active -= 1;
+                }
+
                 Ok(None)
             }
 
@@ -325,9 +439,13 @@ impl Component for Row {
         }
     }
 
-    fn view(&self, out: &mut Out, _bounds: Bounds, _active: bool) -> Res<()> {
-        for &c in &self.chars {
+    fn view(&self, out: &mut Out, Bounds { x0, x1, .. }: Bounds, _active: bool) -> Res<()> {
+        for &c in self.chars.iter().take((x1 - x0).into()) {
             out.queue(Print(c))?;
+        }
+        let remainder = (x1 - x0).saturating_sub(self.chars.len().try_into().unwrap_or(u16::MAX));
+        for _ in 0..remainder {
+            out.queue(Print(' '))?;
         }
 
         Ok(())
