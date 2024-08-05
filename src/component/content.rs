@@ -7,15 +7,16 @@ use crate::{
 };
 use anyhow::Context;
 use crossterm::{
-    cursor::{MoveDown, MoveTo, MoveToColumn},
+    cursor::{MoveDown, MoveToColumn},
     style::{Color, Print, ResetColor, SetBackgroundColor, SetForegroundColor},
     QueueableCommand,
 };
 use std::{
     collections::VecDeque,
     env,
-    fs::{self, File},
+    fs::{self, File, FileType},
     io::{BufRead, BufReader},
+    iter,
     path::{Path, PathBuf},
 };
 
@@ -37,16 +38,18 @@ impl Component for Content {
         match message {
             pressed!(Key::Esc) if matches!(self, Self::Buffer(_)) => {
                 *self = Self::FilePicker(FilePicker::new()?);
+                Ok(None)
             }
+
             Message::Open(path) => {
                 *self = Self::Buffer(Buffer::open(path)?);
+                Ok(None)
             }
-            _ => {}
-        }
 
-        match self {
-            Content::Buffer(buffer) => buffer.update(message),
-            Content::FilePicker(filepicker) => filepicker.update(message),
+            _ => match self {
+                Content::Buffer(buffer) => buffer.update(message),
+                Content::FilePicker(filepicker) => filepicker.update(message),
+            },
         }
     }
 
@@ -66,27 +69,47 @@ impl Component for Content {
 }
 
 #[derive(Clone, Debug)]
+struct Dir {
+    path: PathBuf,
+    file_type: FileType,
+}
+
+#[derive(Clone, Debug)]
 struct FilePicker {
-    paths: Vec<PathBuf>,
+    dirs: Vec<Dir>,
     selected: usize,
+    history: Vec<PathBuf>,
     refresh: bool,
 }
 
 impl FilePicker {
     fn new() -> Res<Self> {
-        Ok(Self::open(env::current_dir()?)?)
+        let mut filepicker = Self {
+            dirs: vec![],
+            selected: 0,
+            history: vec![env::current_dir()?],
+            refresh: false,
+        };
+        filepicker.open()?;
+
+        Ok(filepicker)
     }
 
-    fn open(path: impl AsRef<Path>) -> Res<Self> {
-        let paths = fs::read_dir(path)?
-            .map(|res| res.map(|dir| dir.path()))
+    fn open(&mut self) -> Res<()> {
+        self.dirs = fs::read_dir(self.history.last().context("history is not empty")?)?
+            .map(|res| {
+                res.and_then(|dir| {
+                    Ok(Dir {
+                        path: dir.path(),
+                        file_type: dir.file_type()?,
+                    })
+                })
+            })
             .collect::<Result<_, _>>()?;
+        self.selected = 0;
+        self.refresh = true;
 
-        Ok(Self {
-            paths,
-            selected: 0,
-            refresh: true,
-        })
+        Ok(())
     }
 }
 
@@ -94,18 +117,46 @@ impl Component for FilePicker {
     fn update(&mut self, message: &Message) -> Res<Option<Message>> {
         let update = match message {
             pressed!(Key::Up) => {
-                self.selected = self.selected.saturating_sub(1);
+                self.selected = if self.selected == 0 {
+                    self.dirs.len() - 1
+                } else {
+                    self.selected - 1
+                };
                 None
             }
 
             pressed!(Key::Down) => {
-                self.selected = (self.paths.len() - 1).min(self.selected + 1);
+                self.selected = if self.selected == self.dirs.len() - 1 {
+                    0
+                } else {
+                    self.selected + 1
+                };
                 None
             }
 
             pressed!(Key::Enter) => {
-                //
-                Some(Message::Open(self.paths[self.selected].clone()))
+                let dir = &self.dirs[self.selected];
+
+                if dir.file_type.is_file() {
+                    Some(Message::Open(dir.path.clone()))
+                } else if dir.file_type.is_dir() {
+                    self.history.push(dir.path.clone());
+                    self.open()?;
+                    None
+                } else {
+                    None
+                }
+            }
+
+            pressed!(Key::Esc) => {
+                if let Some(prev) = self.history.pop() {
+                    if self.history.is_empty() {
+                        self.history.push(prev);
+                    } else {
+                        self.open()?;
+                    }
+                }
+                None
             }
 
             _ => None,
@@ -119,7 +170,7 @@ impl Component for FilePicker {
             clear(out, bounds)?;
         }
 
-        for (i, path) in self.paths.iter().enumerate() {
+        for (i, dir) in self.dirs.iter().enumerate() {
             let highlighted = active && i == self.selected;
 
             if highlighted {
@@ -127,7 +178,7 @@ impl Component for FilePicker {
                     .queue(SetForegroundColor(Color::Black))?;
             }
 
-            out.queue(Print(path.display()))?
+            out.queue(Print(dir.path.display()))?
                 .queue(MoveDown(1))?
                 .queue(MoveToColumn(bounds.x0))?;
 
@@ -159,6 +210,7 @@ impl Buffer {
         let below = file
             .lines()
             .map(|res| res.map(|s| s.as_str().into()))
+            .chain(iter::once(Ok(Default::default())))
             .collect::<Result<_, _>>()?;
 
         Ok(Self {
