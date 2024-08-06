@@ -191,7 +191,8 @@ impl Component for FilePicker {
                     .queue(SetForegroundColor(Color::Black))?;
             }
 
-            out.queue(Print(dir.path.display()))?
+            out.queue(Print(if dir.file_type.is_dir() { "* " } else { "> " }))?
+                .queue(Print(dir.path.display()))?
                 .queue(MoveDown(1))?
                 .queue(MoveToColumn(bounds.x0))?;
 
