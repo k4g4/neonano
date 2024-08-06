@@ -262,6 +262,27 @@ impl Component for Buffer {
                 Ok(None)
             }
 
+            pressed!(Key::Left) if self.current_row()?.at_front() => {
+                if let Some(mut row) = self.above.pop_back() {
+                    row.active = row.chars.len().saturating_sub(1);
+                    self.below.push_front(row);
+                }
+
+                Ok(None)
+            }
+
+            pressed!(Key::Right) if self.current_row()?.at_back() => {
+                let row = self.pop_current_row()?;
+                if self.below.is_empty() {
+                    self.below.push_front(row);
+                } else {
+                    self.above.push_back(row);
+                    self.current_row_mut()?.active = 0;
+                }
+
+                Ok(None)
+            }
+
             pressed!(Key::Enter, shift + ctrl) => {
                 self.refresh = true;
                 self.below.push_front(Default::default());
@@ -282,20 +303,33 @@ impl Component for Buffer {
                 self.refresh = true;
                 let mut row = self.pop_current_row()?;
                 let new_row = row.split();
+                row.chars.push(' ');
                 self.above.push_back(row);
                 self.below.push_front(new_row);
 
                 Ok(None)
             }
 
-            pressed!(Key::Backspace) if self.current_row()?.active == 0 => {
+            pressed!(Key::Backspace) if self.current_row()?.at_front() => {
                 if let Some(mut row) = self.above.pop_back() {
                     self.refresh = true;
-                    let old_row = self.pop_current_row()?;
-                    row.active = row.chars.len().saturating_sub(1);
-                    row.chars.extend(old_row.chars);
+                    row.chars.pop();
+                    row.active = row.chars.len();
+                    row.chars.extend(self.pop_current_row()?.chars);
                     self.below.push_front(row);
                 }
+
+                Ok(None)
+            }
+
+            pressed!(Key::Delete) if self.current_row()?.at_back() => {
+                let mut row = self.pop_current_row()?;
+                if let Ok(mut next_row) = self.pop_current_row() {
+                    self.refresh = true;
+                    next_row.chars.pop();
+                    row.chars.extend(next_row.chars);
+                }
+                self.below.push_front(row);
 
                 Ok(None)
             }
@@ -354,6 +388,14 @@ impl Row {
             chars: self.chars.split_off(self.active),
             active: 0,
         }
+    }
+
+    fn at_front(&self) -> bool {
+        self.active == 0
+    }
+
+    fn at_back(&self) -> bool {
+        self.active == self.chars.len().saturating_sub(1)
     }
 }
 
@@ -433,9 +475,30 @@ impl Component for Row {
             }
 
             pressed!(Key::Backspace) => {
-                if self.active > 0 {
+                if !self.at_front() {
                     self.chars.remove(self.active - 1);
                     self.active -= 1;
+                }
+
+                Ok(None)
+            }
+
+            pressed!(Key::Delete, ctrl) => {
+                let until =
+                    if let Some(forward) = self.chars[self.active..].iter().position(nonalphanum) {
+                        self.active + forward + 1
+                    } else {
+                        self.chars.len().saturating_sub(1)
+                    };
+
+                self.chars.drain(self.active..until);
+
+                Ok(None)
+            }
+
+            pressed!(Key::Delete) => {
+                if !self.at_back() {
+                    self.chars.remove(self.active);
                 }
 
                 Ok(None)
@@ -468,7 +531,17 @@ impl Component for Row {
 impl From<&str> for Row {
     fn from(value: &str) -> Self {
         Self {
-            chars: value.chars().chain(iter::once(' ')).collect(),
+            chars: value
+                .chars()
+                .flat_map(|c| {
+                    if c == '\t' {
+                        iter::once(' ').cycle().take(3)
+                    } else {
+                        iter::once(c).cycle().take(1)
+                    }
+                })
+                .chain(iter::once(' '))
+                .collect(),
             active: 0,
         }
     }
