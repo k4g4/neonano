@@ -1,7 +1,7 @@
 use crate::core::Res;
 use crossterm::{
     cursor::{MoveDown, MoveLeft, RestorePosition, SavePosition},
-    style::Print,
+    style::{Color, Print, ResetColor, SetBackgroundColor, SetForegroundColor},
     QueueableCommand,
 };
 
@@ -24,4 +24,15 @@ pub fn clear(out: &mut Out, Bounds { x0, y0, x1, y1 }: Bounds) -> Res<&mut Out> 
         out.queue(MoveDown(1))?.queue(MoveLeft(x1 - x0))?;
     }
     Ok(out.queue(RestorePosition)?)
+}
+
+pub fn with_highlighted<'out, F>(out: &'out mut Out, f: F) -> Res<&'out mut Out>
+where
+    F: FnOnce(&'out mut Out) -> Res<&'out mut Out>,
+{
+    f(out
+        .queue(SetBackgroundColor(Color::White))?
+        .queue(SetForegroundColor(Color::Black))?)?
+    .queue(ResetColor)
+    .map_err(Into::into)
 }

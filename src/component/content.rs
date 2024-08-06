@@ -3,12 +3,12 @@ use crate::{
     core::Res,
     message::{Input, Key, KeyCombo, Message},
     pressed,
-    utils::out::{clear, Out},
+    utils::out::{self, Out},
 };
 use anyhow::Context;
 use crossterm::{
     cursor::{EnableBlinking, Hide, MoveDown, MoveToColumn, MoveToRow, Show},
-    style::{Color, Print, ResetColor, SetBackgroundColor, SetForegroundColor},
+    style::Print,
     QueueableCommand,
 };
 use std::{
@@ -176,28 +176,26 @@ impl Component for FilePicker {
         Ok(update)
     }
 
-    fn view(&self, out: &mut Out, bounds: Bounds, active: bool) -> Res<()> {
+    fn view<'out>(&self, mut out: &'out mut Out, bounds: Bounds, active: bool) -> Res<()> {
         if self.refresh {
-            clear(out, bounds)?;
+            out::clear(out, bounds)?;
         }
 
         out.queue(Hide)?;
 
         for (i, dir) in self.dirs.iter().enumerate() {
-            let highlighted = active && i == self.selected;
+            let queue_line = |out: &'out mut Out| -> Res<&'out mut Out> {
+                Ok(out
+                    .queue(Print(if dir.file_type.is_dir() { "* " } else { "> " }))?
+                    .queue(Print(dir.path.display()))?
+                    .queue(MoveDown(1))?
+                    .queue(MoveToColumn(bounds.x0))?)
+            };
 
-            if highlighted {
-                out.queue(SetBackgroundColor(Color::White))?
-                    .queue(SetForegroundColor(Color::Black))?;
-            }
-
-            out.queue(Print(if dir.file_type.is_dir() { "* " } else { "> " }))?
-                .queue(Print(dir.path.display()))?
-                .queue(MoveDown(1))?
-                .queue(MoveToColumn(bounds.x0))?;
-
-            if highlighted {
-                out.queue(ResetColor)?;
+            if active && i == self.selected {
+                out = out::with_highlighted(out, queue_line)?;
+            } else {
+                out = queue_line(out)?;
             }
         }
 
@@ -352,7 +350,7 @@ impl Component for Buffer {
 
     fn view(&self, out: &mut Out, bounds: Bounds, active: bool) -> Res<()> {
         if self.refresh {
-            clear(out, bounds)?;
+            out::clear(out, bounds)?;
         }
 
         for row in &self.above {
