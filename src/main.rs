@@ -10,9 +10,9 @@ fn main() {
     write(
         "error",
         if let Err(error) = Core::new().and_then(Core::run) {
-            format!("{error}\n\n{}", error.backtrace())
+            format!("{error:?}")
         } else {
-            Default::default()
+            "".into()
         },
     )
     .unwrap()

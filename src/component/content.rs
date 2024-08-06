@@ -15,7 +15,7 @@ use std::{
     collections::VecDeque,
     env,
     fs::{self, File, FileType},
-    io::{BufRead, BufReader},
+    io::{self, BufRead, BufReader, ErrorKind},
     iter,
     path::{Path, PathBuf},
 };
@@ -42,7 +42,18 @@ impl Component for Content {
             }
 
             Message::Open(path) => {
-                *self = Self::Buffer(Buffer::open(path)?);
+                match Buffer::open(path) {
+                    Ok(buffer) => {
+                        *self = Self::Buffer(buffer);
+                    }
+                    Err(error) => {
+                        let io_error: &io::Error = error.downcast_ref().context("unknown error")?;
+                        if io_error.kind() != ErrorKind::InvalidData {
+                            return Err(error);
+                        }
+                    }
+                }
+
                 Ok(None)
             }
 
