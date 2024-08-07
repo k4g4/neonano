@@ -1,6 +1,5 @@
-use std::path::PathBuf;
-
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use std::path::PathBuf;
 
 #[derive(Clone, Debug)]
 pub enum Message {

@@ -1,5 +1,5 @@
 use crate::{
-    component::{Bounds, Component},
+    component::{line::Line, Bounds, Component},
     core::Res,
     message::{Input, Key, KeyCombo, Message},
     pressed,
@@ -12,7 +12,6 @@ use crossterm::{
     QueueableCommand,
 };
 use std::{
-    collections::VecDeque,
     env,
     fs::{self, File, FileType},
     io::{self, BufRead, BufReader, ErrorKind},
@@ -176,13 +175,14 @@ impl Component for FilePicker {
         Ok(update)
     }
 
-    fn view<'out>(&self, mut out: &'out mut Out, bounds: Bounds, active: bool) -> Res<()> {
+    fn view<'out>(&self, out: &'out mut Out, bounds: Bounds, active: bool) -> Res<()> {
         if self.refresh {
             out::clear(out, bounds)?;
         }
 
         out.queue(Hide)?;
 
+        let mut out = out;
         for (i, dir) in self.dirs.iter().enumerate() {
             let queue_line = |out: &'out mut Out| -> Res<&'out mut Out> {
                 Ok(out
@@ -211,8 +211,8 @@ impl Component for FilePicker {
 
 #[derive(Clone, Default, Debug)]
 struct Buffer {
-    above: VecDeque<Row>,
-    below: VecDeque<Row>,
+    above: Vec<Line>,
+    below: Vec<Line>,
     refresh: bool,
 }
 
@@ -221,27 +221,27 @@ impl Buffer {
         let file = BufReader::new(File::open(path)?);
         let below = file
             .lines()
-            .map(|res| res.map(|s| s.as_str().into()))
+            .map(|res| res.map(Into::into))
             .chain(iter::once(Ok(Default::default())))
             .collect::<Result<_, _>>()?;
 
         Ok(Self {
-            above: VecDeque::new(),
+            above: vec![],
             below,
             refresh: true,
         })
     }
 
-    fn pop_current_row(&mut self) -> Res<Row> {
-        self.below.pop_front().context("below is never empty")
+    fn pop_current_line(&mut self) -> Res<Line> {
+        self.below.pop().context("below is never empty")
     }
 
-    fn current_row(&self) -> Res<&Row> {
-        self.below.front().context("below is never empty")
+    fn current_line(&self) -> Res<&Line> {
+        self.below.last().context("below is never empty")
     }
 
-    fn current_row_mut(&mut self) -> Res<&mut Row> {
-        self.below.front_mut().context("below is never empty")
+    fn current_line_mut(&mut self) -> Res<&mut Line> {
+        self.below.last_mut().context("below is never empty")
     }
 }
 
@@ -249,45 +249,43 @@ impl Component for Buffer {
     fn update(&mut self, message: &Message) -> Res<Option<Message>> {
         match message {
             pressed!(Key::Up) => {
-                if let Some(mut row) = self.above.pop_back() {
-                    let prev_active = self.current_row()?.active;
-                    row.active = prev_active.clamp(0, row.chars.len().saturating_sub(1));
-                    self.below.push_front(row);
+                if let Some(mut line) = self.above.pop() {
+                    line.set_active(self.current_line()?.active());
+                    self.below.push(line);
                 }
 
                 Ok(None)
             }
 
             pressed!(Key::Down) => {
-                let row = self.pop_current_row()?;
+                let line = self.pop_current_line()?;
                 if self.below.is_empty() {
-                    self.below.push_front(row);
+                    self.below.push(line);
                 } else {
-                    let prev_active = row.active;
-                    self.above.push_back(row);
-                    self.current_row_mut()?.active =
-                        prev_active.clamp(0, self.current_row()?.chars.len().saturating_sub(1));
+                    let prev_active = line.active();
+                    self.above.push(line);
+                    self.current_line_mut()?.set_active(prev_active);
                 }
 
                 Ok(None)
             }
 
-            pressed!(Key::Left) if self.current_row()?.at_front() => {
-                if let Some(mut row) = self.above.pop_back() {
-                    row.active = row.chars.len().saturating_sub(1);
-                    self.below.push_front(row);
+            pressed!(Key::Left) if self.current_line()?.at_front() => {
+                if let Some(mut line) = self.above.pop() {
+                    line.set_active_back();
+                    self.below.push(line);
                 }
 
                 Ok(None)
             }
 
-            pressed!(Key::Right) if self.current_row()?.at_back() => {
-                let row = self.pop_current_row()?;
+            pressed!(Key::Right) if self.current_line()?.at_back() => {
+                let line = self.pop_current_line()?;
                 if self.below.is_empty() {
-                    self.below.push_front(row);
+                    self.below.push(line);
                 } else {
-                    self.above.push_back(row);
-                    self.current_row_mut()?.active = 0;
+                    self.above.push(line);
+                    self.current_line_mut()?.set_active_front();
                 }
 
                 Ok(None)
@@ -295,80 +293,103 @@ impl Component for Buffer {
 
             pressed!(Key::Enter, shift + ctrl) => {
                 self.refresh = true;
-                self.below.push_front(Default::default());
+                self.below.push(Default::default());
 
                 Ok(None)
             }
 
             pressed!(Key::Enter, ctrl) => {
                 self.refresh = true;
-                let row = self.pop_current_row()?;
-                self.above.push_back(row);
-                self.below.push_front(Default::default());
+                let line = self.pop_current_line()?;
+                self.above.push(line);
+                self.below.push(Default::default());
 
                 Ok(None)
             }
 
             pressed!(Key::Enter) => {
                 self.refresh = true;
-                let mut row = self.pop_current_row()?;
-                let new_row = row.split();
-                row.chars.push(' ');
-                self.above.push_back(row);
-                self.below.push_front(new_row);
+                let mut line = self.pop_current_line()?;
+                self.below.push(line.split());
+                self.above.push(line);
 
                 Ok(None)
             }
 
-            pressed!(Key::Backspace) if self.current_row()?.at_front() => {
-                if let Some(mut row) = self.above.pop_back() {
+            pressed!(Key::Backspace) if self.current_line()?.at_front() => {
+                if let Some(mut line) = self.above.pop() {
                     self.refresh = true;
-                    row.chars.pop();
-                    row.active = row.chars.len();
-                    row.chars.extend(self.pop_current_row()?.chars);
-                    self.below.push_front(row);
+                    line.set_active_back();
+                    line.append(self.pop_current_line()?);
+                    self.below.push(line);
                 }
 
                 Ok(None)
             }
 
-            pressed!(Key::Delete) if self.current_row()?.at_back() => {
-                let mut row = self.pop_current_row()?;
-                if let Ok(mut next_row) = self.pop_current_row() {
+            pressed!(Key::Delete) if self.current_line()?.at_back() => {
+                let mut line = self.pop_current_line()?;
+                if let Ok(next_line) = self.pop_current_line() {
                     self.refresh = true;
-                    next_row.chars.pop();
-                    row.chars.extend(next_row.chars);
+                    line.append(next_line);
                 }
-                self.below.push_front(row);
+                self.below.push(line);
 
                 Ok(None)
             }
 
-            _ => self.current_row_mut()?.update(message),
+            _ => self.current_line_mut()?.update(message),
         }
     }
 
-    fn view(&self, out: &mut Out, bounds: Bounds, active: bool) -> Res<()> {
+    fn view<'out>(&self, out: &'out mut Out, bounds: Bounds, active: bool) -> Res<()> {
         if self.refresh {
             out::clear(out, bounds)?;
         }
 
-        for row in &self.above {
-            row.view(out, bounds, false)?;
-            out.queue(MoveDown(1))?.queue(MoveToColumn(bounds.x0))?;
+        let middle = bounds.y0 + ((bounds.y1 - bounds.y0) / 2);
+        let above_indices = (bounds.y0..middle).rev();
+        let below_indices = middle + 1..bounds.y1;
+
+        let line_feed = |out: &'out mut Out| -> Res<&'out mut Out> {
+            out.queue(MoveDown(1))?
+                .queue(MoveToColumn(bounds.x0))
+                .map_err(Into::into)
+        };
+
+        let mut out = out;
+        for (line, y) in self.above.iter().rev().zip(above_indices).rev() {
+            let line_bounds = Bounds {
+                y0: y,
+                y1: y + 1,
+                ..bounds
+            };
+
+            line.view(out, line_bounds, false)?;
+            out = line_feed(out)?;
         }
 
-        self.current_row()?.view(out, bounds, true)?;
-        out.queue(MoveDown(1))?.queue(MoveToColumn(bounds.x0))?;
+        let line_bounds = Bounds {
+            y0: middle,
+            y1: middle + 1,
+            ..bounds
+        };
+        self.current_line()?.view(out, line_bounds, true)?;
+        out = line_feed(out)?;
 
-        for row in self.below.iter().skip(1) {
-            row.view(out, bounds, false)?;
-            out.queue(MoveDown(1))?.queue(MoveToColumn(bounds.x0))?;
+        for (line, y) in self.below.iter().skip(1).zip(below_indices) {
+            let line_bounds = Bounds {
+                y0: y,
+                y1: y + 1,
+                ..bounds
+            };
+            line.view(out, line_bounds, false)?;
+            out = line_feed(out)?;
         }
 
         if active {
             let row = bounds.x0 + <u16>::try_from(self.above.len())?;
-            let column = bounds.y0 + <u16>::try_from(self.current_row()?.active)?;
+            let column = bounds.y0 + <u16>::try_from(self.current_line()?.active())?;
 
             out.queue(MoveToRow(row))?
                 .queue(MoveToColumn(column))?
@@ -383,176 +404,5 @@ impl Component for Buffer {
         self.refresh = false;
 
         Ok(())
-    }
-}
-
-#[derive(Clone, Default, Debug)]
-struct Row {
-    chars: Vec<char>,
-    active: usize,
-}
-
-impl Row {
-    fn split(&mut self) -> Self {
-        Self {
-            chars: self.chars.split_off(self.active),
-            active: 0,
-        }
-    }
-
-    fn at_front(&self) -> bool {
-        self.active == 0
-    }
-
-    fn at_back(&self) -> bool {
-        self.active == self.chars.len().saturating_sub(1)
-    }
-}
-
-impl Component for Row {
-    fn update(&mut self, message: &Message) -> Res<Option<Message>> {
-        let nonalphanum = |&c: &char| !c.is_alphanumeric();
-
-        match message {
-            pressed!(Key::Left, ctrl) => {
-                self.active = if let Some(backward) =
-                    self.chars[..self.active].iter().rev().position(nonalphanum)
-                {
-                    self.active - backward - 1
-                } else {
-                    0
-                };
-
-                Ok(None)
-            }
-
-            pressed!(Key::Left) => {
-                self.active = self.active.saturating_sub(1);
-                Ok(None)
-            }
-
-            pressed!(Key::Right, ctrl) => {
-                self.active = if let Some(forward) =
-                    self.chars[self.active + 1..].iter().position(nonalphanum)
-                {
-                    self.active + forward + 1
-                } else {
-                    self.chars.len().saturating_sub(1)
-                };
-
-                Ok(None)
-            }
-
-            pressed!(Key::Right) => {
-                self.active = (self.chars.len().saturating_sub(1)).min(self.active + 1);
-
-                Ok(None)
-            }
-
-            pressed!(Key::Home) => {
-                self.active = 0;
-
-                Ok(None)
-            }
-
-            pressed!(Key::End) => {
-                self.active = self.chars.len().saturating_sub(1);
-
-                Ok(None)
-            }
-
-            &pressed!(Key::Char(c)) => {
-                self.chars.insert(self.active, c);
-                self.active += 1;
-
-                Ok(None)
-            }
-
-            pressed!(Key::Backspace, ctrl) => {
-                let prev_active = self.active;
-
-                self.active = if let Some(backward) =
-                    self.chars[..self.active].iter().rev().position(nonalphanum)
-                {
-                    self.active - backward - 1
-                } else {
-                    0
-                };
-
-                self.chars.drain(self.active..prev_active);
-
-                Ok(None)
-            }
-
-            pressed!(Key::Backspace) => {
-                if !self.at_front() {
-                    self.chars.remove(self.active - 1);
-                    self.active -= 1;
-                }
-
-                Ok(None)
-            }
-
-            pressed!(Key::Delete, ctrl) => {
-                let until =
-                    if let Some(forward) = self.chars[self.active..].iter().position(nonalphanum) {
-                        self.active + forward + 1
-                    } else {
-                        self.chars.len().saturating_sub(1)
-                    };
-
-                self.chars.drain(self.active..until);
-
-                Ok(None)
-            }
-
-            pressed!(Key::Delete) => {
-                if !self.at_back() {
-                    self.chars.remove(self.active);
-                }
-
-                Ok(None)
-            }
-
-            _ => Ok(None),
-        }
-    }
-
-    fn view(&self, out: &mut Out, Bounds { x0, x1, .. }: Bounds, active: bool) -> Res<()> {
-        for &c in self.chars.iter().take((x1 - x0).into()) {
-            out.queue(Print(c))?;
-        }
-        if active {
-            let remainder =
-                (x1 - x0).saturating_sub(self.chars.len().try_into().unwrap_or(u16::MAX));
-            for _ in 0..remainder {
-                out.queue(Print(' '))?;
-            }
-        }
-
-        Ok(())
-    }
-
-    fn finally(&mut self) -> Res<()> {
-        Ok(())
-    }
-}
-
-impl From<&str> for Row {
-    fn from(value: &str) -> Self {
-        Self {
-            chars: value
-                .chars()
-                .flat_map(|c| {
-                    if c == '\t' {
-                        iter::once(' ').cycle().take(3)
-                    } else {
-                        iter::once(c).cycle().take(1)
-                    }
-                })
-                .chain(iter::once(' '))
-                .collect(),
-            active: 0,
-        }
     }
 }

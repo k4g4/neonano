@@ -1,8 +1,10 @@
-pub mod content;
 pub mod frame;
-pub mod screen;
-pub mod statusbars;
-pub mod window;
+
+mod content;
+mod line;
+mod screen;
+mod statusbars;
+mod window;
 
 use crate::core::Res;
 use crate::message::Message;
