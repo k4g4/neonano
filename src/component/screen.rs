@@ -1,10 +1,10 @@
 use anyhow::Context;
 
 use crate::{
-    component::{content::Content, Bounds, Component},
+    component::content::Content,
     core::Res,
     message::Message,
-    utils::out::Out,
+    utils::out::{Bounds, Out},
 };
 
 #[derive(Clone, Debug)]
@@ -14,9 +14,9 @@ pub struct Screen {
 }
 
 impl Screen {
-    pub fn new() -> Res<Self> {
+    pub fn new(bounds: Bounds) -> Res<Self> {
         Ok(Self {
-            columns: [Some(Column::new()?), None, None],
+            columns: [Some(Column::new(bounds)?), None, None],
             active: 0,
         })
     }
@@ -24,44 +24,33 @@ impl Screen {
     fn len(&self) -> usize {
         self.columns.iter().flatten().count()
     }
-}
 
-impl Component for Screen {
-    fn update(&mut self, message: &Message) -> Res<Option<Message>> {
+    pub fn update(&mut self, message: &Message) -> Res<Option<Message>> {
         self.columns[self.active]
             .as_mut()
             .context("column should be Some")?
             .update(message)
     }
 
-    fn view(&self, out: &mut Out, bounds: Bounds, active: bool) -> Res<()> {
+    pub fn view(&self, out: &mut Out) -> Res<()> {
         let inactive_columns = self
             .columns
             .iter()
             .flatten()
             .enumerate()
-            .filter(|&(i, _)| !active || i != self.active)
+            .filter(|&(i, _)| i != self.active)
             .map(|(_, column)| column);
 
         for column in inactive_columns {
-            column.view(out, bounds, false)?;
+            column.view(out, false)?;
         }
 
-        if active {
-            self.columns[self.active]
-                .as_ref()
-                .context("column should be Some")?
-                .view(out, bounds, true)?;
-        }
+        self.columns[self.active]
+            .as_ref()
+            .context("column should be Some")?
+            .view(out, true)?;
 
         Ok(())
-    }
-
-    fn finally(&mut self) -> Res<()> {
-        self.columns
-            .iter_mut()
-            .flatten()
-            .try_for_each(Component::finally)
     }
 }
 
@@ -72,9 +61,9 @@ struct Column {
 }
 
 impl Column {
-    fn new() -> Res<Self> {
+    fn new(bounds: Bounds) -> Res<Self> {
         Ok(Self {
-            tiles: [Some(Tile::new()?), None, None],
+            tiles: [Some(Tile::new(bounds)?), None, None],
             active: 0,
         })
     }
@@ -82,9 +71,7 @@ impl Column {
     fn len(&self) -> usize {
         self.tiles.iter().flatten().count()
     }
-}
 
-impl Component for Column {
     fn update(&mut self, message: &Message) -> Res<Option<Message>> {
         self.tiles[self.active]
             .as_mut()
@@ -92,7 +79,7 @@ impl Component for Column {
             .update(message)
     }
 
-    fn view(&self, out: &mut Out, bounds: Bounds, active: bool) -> Res<()> {
+    fn view(&self, out: &mut Out, active: bool) -> Res<()> {
         let inactive_tiles = self
             .tiles
             .iter()
@@ -102,24 +89,17 @@ impl Component for Column {
             .map(|(_, tile)| tile);
 
         for column in inactive_tiles {
-            column.view(out, bounds, false)?;
+            column.view(out, false)?;
         }
 
         if active {
             self.tiles[self.active]
                 .as_ref()
                 .context("tile should be Some")?
-                .view(out, bounds, true)?;
+                .view(out, true)?;
         }
 
         Ok(())
-    }
-
-    fn finally(&mut self) -> Res<()> {
-        self.tiles
-            .iter_mut()
-            .flatten()
-            .try_for_each(Component::finally)
     }
 }
 
@@ -130,24 +110,18 @@ struct Tile {
 }
 
 impl Tile {
-    fn new() -> Res<Self> {
+    fn new(bounds: Bounds) -> Res<Self> {
         Ok(Self {
-            content: vec![Content::new()?],
+            content: vec![Content::new(bounds)?],
             active: 0,
         })
     }
-}
 
-impl Component for Tile {
     fn update(&mut self, message: &Message) -> Res<Option<Message>> {
         self.content[self.active].update(message)
     }
 
-    fn view(&self, out: &mut Out, bounds: Bounds, active: bool) -> Res<()> {
-        self.content[self.active].view(out, bounds, active)
-    }
-
-    fn finally(&mut self) -> Res<()> {
-        self.content.iter_mut().try_for_each(Component::finally)
+    fn view(&self, out: &mut Out, active: bool) -> Res<()> {
+        self.content[self.active].view(out, active)
     }
 }

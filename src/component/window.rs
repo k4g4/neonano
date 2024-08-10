@@ -1,8 +1,8 @@
 use crate::{
-    component::{screen::Screen, Bounds, Component},
+    component::screen::Screen,
     core::Res,
     message::Message,
-    utils::out::Out,
+    utils::out::{Bounds, Out},
 };
 
 #[derive(Debug)]
@@ -12,16 +12,14 @@ pub struct Window {
 }
 
 impl Window {
-    pub fn new() -> Res<Self> {
+    pub fn new(bounds: Bounds) -> Res<Self> {
         Ok(Self {
-            screens: vec![Screen::new()?],
+            screens: vec![Screen::new(bounds)?],
             active: 0,
         })
     }
-}
 
-impl Component for Window {
-    fn update(&mut self, message: &Message) -> Res<Option<Message>> {
+    pub fn update(&mut self, message: &Message) -> Res<Option<Message>> {
         let update = match message {
             Message::Input(_) => None,
             _ => None,
@@ -34,13 +32,7 @@ impl Component for Window {
         }
     }
 
-    fn view(&self, out: &mut Out, bounds: Bounds, _active: bool) -> Res<()> {
-        self.screens[self.active].view(out, bounds, true)
-    }
-
-    fn finally(&mut self) -> Res<()> {
-        self.screens
-            .iter_mut()
-            .try_for_each(|screen| screen.finally())
+    pub fn view(&self, out: &mut Out) -> Res<()> {
+        self.screens[self.active].view(out)
     }
 }

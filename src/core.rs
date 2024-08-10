@@ -1,5 +1,5 @@
 use crate::{
-    component::{frame::Frame, Component},
+    component::frame::Frame,
     message::Message,
     utils::{
         input::InputReader,
@@ -12,21 +12,9 @@ use crossterm::{
     terminal::{self, EnterAlternateScreen, LeaveAlternateScreen},
     QueueableCommand,
 };
-use std::{
-    cell::Cell,
-    io::{self, Write},
-};
+use std::io::{self, Write};
 
 pub type Res<T> = anyhow::Result<T>;
-
-#[derive(Copy, Clone, Default, Debug)]
-pub struct State {
-    pub bounds: Bounds,
-}
-
-thread_local! {
-    pub static STATE: Cell<State> = Default::default();
-}
 
 pub struct Core {
     frame: Frame,
@@ -35,6 +23,14 @@ pub struct Core {
 
 impl Core {
     pub fn new() -> Res<Self> {
+        let (width, height) = terminal::size()?;
+        let bounds = Bounds {
+            x0: 0,
+            y0: 0,
+            x1: width,
+            y1: height,
+        };
+
         terminal::enable_raw_mode()?;
 
         let mut out = io::stdout().lock();
@@ -47,7 +43,7 @@ impl Core {
             Err(error.into())
         } else {
             Ok(Self {
-                frame: Frame::new()?,
+                frame: Frame::new(bounds)?,
                 out,
             })
         }
@@ -84,15 +80,8 @@ impl Core {
 
             if updated {
                 self.out.queue(MoveTo(0, 0))?.queue(Hide)?;
-                let bounds = Bounds {
-                    x0: 0,
-                    y0: 0,
-                    x1: self.width,
-                    y1: self.height,
-                };
-                self.frame.view(&mut self.out, bounds, true)?;
+                self.frame.view(&mut self.out)?;
                 self.out.flush()?;
-                self.frame.finally()?;
             }
 
             updated = false;

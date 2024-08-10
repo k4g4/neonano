@@ -2,14 +2,12 @@ use crate::{
     component::{
         statusbars::{BottomBar, TopBar},
         window::Window,
-        Bounds, Component,
     },
-    core::{Res, State, STATE},
+    core::Res,
     message::{Input, Key, KeyCombo, Message},
     pressed,
-    utils::out::Out,
+    utils::out::{Bounds, Out},
 };
-use crossterm::terminal;
 
 #[derive(Debug)]
 pub struct Frame {
@@ -19,29 +17,18 @@ pub struct Frame {
 }
 
 impl Frame {
-    pub fn new() -> Res<Self> {
-        let (width, height) = terminal::size()?;
-
-        STATE.set(State {
-            bounds: Bounds {
-                x0: 0,
-                y0: 0,
-                x1: width,
-                y1: height,
-            },
-            ..Default::default()
-        });
+    pub fn new(bounds: Bounds) -> Res<Self> {
+        let (top_bar_bounds, rest) = bounds.hsplit(1);
+        let (window_bounds, bottom_bar_bounds) = rest.hsplit(bounds.y1 - 1);
 
         Ok(Self {
-            top: TopBar::new()?,
-            bottom: BottomBar::new()?,
-            window: Window::new()?,
+            top: TopBar::new(top_bar_bounds)?,
+            bottom: BottomBar::new(bottom_bar_bounds)?,
+            window: Window::new(window_bounds)?,
         })
     }
-}
 
-impl Component for Frame {
-    fn update(&mut self, message: &Message) -> Res<Option<Message>> {
+    pub fn update(&mut self, message: &Message) -> Res<Option<Message>> {
         let update = match message {
             pressed!(Key::Char('c' | 'x'), ctrl) => Some(Message::Quit),
             _ => None,
@@ -54,15 +41,9 @@ impl Component for Frame {
         }
     }
 
-    fn view(&self, out: &mut Out, bounds: Bounds, _active: bool) -> Res<()> {
-        self.top.view(out, bounds, true)?;
-        self.bottom.view(out, bounds, true)?;
-        self.window.view(out, bounds, true)
-    }
-
-    fn finally(&mut self) -> Res<()> {
-        self.top.finally()?;
-        self.bottom.finally()?;
-        self.window.finally()
+    pub fn view(&self, out: &mut Out) -> Res<()> {
+        self.top.view(out)?;
+        self.bottom.view(out)?;
+        self.window.view(out)
     }
 }

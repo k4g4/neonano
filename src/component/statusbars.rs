@@ -1,29 +1,22 @@
 use crate::{
-    component::{Bounds, Component},
     core::Res,
     message::Message,
-    utils::out::Out,
+    utils::out::{Bounds, Out},
 };
 
 #[derive(Debug)]
 pub struct TopBar;
 
 impl TopBar {
-    pub fn new() -> Res<Self> {
+    pub fn new(_: Bounds) -> Res<Self> {
         Ok(Self)
     }
-}
 
-impl Component for TopBar {
-    fn update(&mut self, message: &Message) -> Res<Option<Message>> {
-        Ok(None)
-    }
-
-    fn view(&self, out: &mut Out, bounds: Bounds, active: bool) -> Res<()> {
+    pub fn update(&mut self, message: &Message) -> Res<()> {
         Ok(())
     }
 
-    fn finally(&mut self) -> Res<()> {
+    pub fn view(&self, out: &mut Out) -> Res<()> {
         Ok(())
     }
 }
@@ -32,21 +25,15 @@ impl Component for TopBar {
 pub struct BottomBar;
 
 impl BottomBar {
-    pub fn new() -> Res<Self> {
+    pub fn new(_: Bounds) -> Res<Self> {
         Ok(Self)
     }
-}
 
-impl Component for BottomBar {
-    fn update(&mut self, message: &Message) -> Res<Option<Message>> {
-        Ok(None)
-    }
-
-    fn view(&self, out: &mut Out, bounds: Bounds, active: bool) -> Res<()> {
+    pub fn update(&mut self, message: &Message) -> Res<()> {
         Ok(())
     }
 
-    fn finally(&mut self) -> Res<()> {
+    pub fn view(&self, out: &mut Out) -> Res<()> {
         Ok(())
     }
 }

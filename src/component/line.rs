@@ -1,9 +1,8 @@
 use crate::{
-    component::Component,
     core::Res,
     message::{Input, Key, KeyCombo, Message},
     pressed,
-    utils::out::{Bounds, Out},
+    utils::out::Out,
 };
 use crossterm::{
     cursor::{EnableBlinking, MoveToColumn, Show},
@@ -156,10 +155,8 @@ impl Line {
     pub fn remove(&mut self) {
         self.content.remove(self.active_byte);
     }
-}
 
-impl Component for Line {
-    fn update(&mut self, message: &Message) -> Res<Option<Message>> {
+    pub fn update(&mut self, message: &Message) -> Res<()> {
         let nonalphanum = |(i, c): (_, char)| (!c.is_alphanumeric()).then(|| i);
 
         match message {
@@ -170,14 +167,10 @@ impl Component for Line {
                     .find_map(nonalphanum)
                     .unwrap_or(0)
                     .saturating_sub(1);
-
-                Ok(None)
             }
 
             pressed!(Key::Left) => {
                 self.set_active_prev();
-
-                Ok(None)
             }
 
             pressed!(Key::Right, ctrl) => {
@@ -189,33 +182,23 @@ impl Component for Line {
                 } else {
                     self.set_active_back();
                 }
-
-                Ok(None)
             }
 
             pressed!(Key::Right) => {
                 self.set_active_next();
-
-                Ok(None)
             }
 
             pressed!(Key::Home) => {
                 self.set_active_front();
-
-                Ok(None)
             }
 
             pressed!(Key::End) => {
                 self.set_active_back();
-
-                Ok(None)
             }
 
             &pressed!(Key::Char(c)) => {
                 self.insert(c);
                 self.set_active_next();
-
-                Ok(None)
             }
 
             pressed!(Key::Backspace, ctrl) => {
@@ -229,8 +212,6 @@ impl Component for Line {
                     .saturating_sub(1);
 
                 self.content.drain(self.active_byte..prev_active_byte);
-
-                Ok(None)
             }
 
             pressed!(Key::Backspace) => {
@@ -238,8 +219,6 @@ impl Component for Line {
                     self.set_active_prev();
                     self.remove();
                 }
-
-                Ok(None)
             }
 
             pressed!(Key::Delete, ctrl) => {
@@ -252,37 +231,31 @@ impl Component for Line {
                 } else {
                     self.content.drain(self.active_byte..);
                 };
-
-                Ok(None)
             }
 
             pressed!(Key::Delete) => {
                 if !self.at_back() {
                     self.remove();
                 }
-
-                Ok(None)
             }
 
-            _ => Ok(None),
-        }
-    }
-
-    fn view(&self, out: &mut Out, bounds: Bounds, active: bool) -> Res<()> {
-        for c in self.chars().take((bounds.x1 - bounds.x0).into()) {
-            out.queue(Print(c))?;
-        }
-
-        if active {
-            out.queue(MoveToColumn(self.active() as u16))?
-                .queue(Show)?
-                .queue(EnableBlinking)?;
+            _ => {}
         }
 
         Ok(())
     }
 
-    fn finally(&mut self) -> Res<()> {
+    pub fn view(&self, out: &mut Out, width: u16, active: bool) -> Res<()> {
+        for c in self.chars().take(width.into()) {
+            out.queue(Print(c))?;
+        }
+
+        if active {
+            out.queue(MoveToColumn(self.active().try_into()?))?
+                .queue(Show)?
+                .queue(EnableBlinking)?;
+        }
+
         Ok(())
     }
 }
