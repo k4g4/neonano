@@ -1,6 +1,6 @@
 use crate::core::Res;
 use crossterm::{
-    cursor::{MoveDown, MoveLeft, RestorePosition, SavePosition},
+    cursor::{MoveDown, MoveLeft, MoveToColumn, MoveToRow, RestorePosition, SavePosition},
     style::{Color, Print, ResetColor, SetBackgroundColor, SetForegroundColor},
     QueueableCommand,
 };
@@ -31,6 +31,10 @@ impl Bounds {
     pub fn height(self) -> u16 {
         self.y1 - self.y0
     }
+}
+
+pub fn anchor(out: &mut Out, Bounds { x0, y0, .. }: Bounds) -> Res<&mut Out> {
+    Ok(out.queue(MoveToRow(y0))?.queue(MoveToColumn(x0))?)
 }
 
 pub fn clear(out: &mut Out, Bounds { x0, y0, x1, y1 }: Bounds) -> Res<&mut Out> {

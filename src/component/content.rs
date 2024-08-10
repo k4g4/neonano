@@ -7,7 +7,7 @@ use crate::{
 };
 use anyhow::Context;
 use crossterm::{
-    cursor::{Hide, MoveDown, MoveToColumn},
+    cursor::{Hide, MoveDown, MoveToColumn, MoveToRow},
     style::Print,
     QueueableCommand,
 };
@@ -171,7 +171,7 @@ impl FilePicker {
     }
 
     fn view<'out>(&self, out: &'out mut Out, active: bool) -> Res<()> {
-        out.queue(Hide)?;
+        out::anchor(out.queue(Hide)?, self.bounds)?;
 
         let width = self.bounds.width().into();
         let mut out = out;
@@ -280,18 +280,12 @@ impl Buffer {
 
         if self.active < self.lines.len() - SCROLL_DIST {
             self.active += 1;
-            self.current_line_mut()?.set_active(prev_line_active);
-
-            Ok(())
-        } else if self.scroll_down()? {
-            self.current_line_mut()?.set_active(prev_line_active);
-
-            Ok(())
-        } else {
+        } else if !self.scroll_down()? {
             self.active = (self.active + 1).clamp(0, self.lines.len() - 1);
-
-            Ok(())
         }
+        self.current_line_mut()?.set_active(prev_line_active);
+
+        Ok(())
     }
 
     fn cursor_up(&mut self) -> Res<()> {
@@ -299,18 +293,12 @@ impl Buffer {
 
         if self.active > SCROLL_DIST {
             self.active -= 1;
-            self.current_line_mut()?.set_active(prev_line_active);
-
-            Ok(())
-        } else if self.scroll_up()? {
-            self.current_line_mut()?.set_active(prev_line_active);
-
-            Ok(())
-        } else {
+        } else if !self.scroll_up()? {
             self.active = self.active.saturating_sub(1);
-
-            Ok(())
         }
+        self.current_line_mut()?.set_active(prev_line_active);
+
+        Ok(())
     }
 
     fn update(&mut self, message: &Message) -> Res<Option<Message>> {
@@ -398,8 +386,12 @@ impl Buffer {
     }
 
     fn view(&self, out: &mut Out, active: bool) -> Res<()> {
+        out::anchor(out, self.bounds)?;
+
         for (i, line) in self.lines.iter().enumerate() {
-            line.view(out, self.bounds.width(), active && i == self.active)?;
+            if i != self.active {
+                line.view(out, self.bounds.width(), false)?;
+            }
             out.queue(MoveDown(1))?
                 .queue(MoveToColumn(self.bounds.x0))?;
         }
@@ -413,6 +405,10 @@ impl Buffer {
                 },
             )?;
         }
+
+        out.queue(MoveToRow(self.bounds.y0 + u16::try_from(self.active)?))?;
+        self.current_line()?
+            .view(out, self.bounds.width(), active)?;
 
         Ok(())
     }
