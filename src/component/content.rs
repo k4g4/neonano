@@ -210,7 +210,12 @@ impl Buffer {
             .lines()
             .map(|res| res.map(Into::into))
             .collect::<Result<Vec<_>, _>>()?;
-        let below = lines.split_off(bounds.height().into());
+        let height = bounds.height().into();
+        let below = if height < lines.len() {
+            lines.split_off(height)
+        } else {
+            vec![]
+        };
 
         Ok(Self {
             lines: lines.into(),
@@ -221,86 +226,100 @@ impl Buffer {
         })
     }
 
-    fn current_line(&self) -> &Line {
-        &self.lines[self.active]
+    fn current_line(&self) -> Res<&Line> {
+        self.lines.get(self.active).context("active is valid")
     }
 
-    fn current_line_mut(&mut self) -> &mut Line {
-        &mut self.lines[self.active]
+    fn current_line_mut(&mut self) -> Res<&mut Line> {
+        self.lines.get_mut(self.active).context("active is valid")
     }
 
-    fn scroll_down(&mut self) -> bool {
+    fn scroll_down(&mut self) -> Res<bool> {
         if let Some(line_from_below) = self.below.pop() {
             self.lines.push_back(line_from_below);
-            let line_to_above = self.lines.pop_front().expect("at least one line");
+            let line_to_above = self.lines.pop_front().context("at least one line")?;
             self.above.push(line_to_above);
-            true
+
+            Ok(true)
         } else {
-            false
+            Ok(false)
         }
     }
 
-    fn scroll_up(&mut self) -> bool {
+    fn scroll_up(&mut self) -> Res<bool> {
         if let Some(line_from_above) = self.above.pop() {
             self.lines.push_back(line_from_above);
-            let line_to_below = self.lines.pop_back().expect("at least one line");
+            let line_to_below = self.lines.pop_back().context("at least one line")?;
             self.below.push(line_to_below);
-            true
+
+            Ok(true)
         } else {
-            false
+            Ok(false)
         }
     }
 
-    fn cursor_down(&mut self) {
-        let prev_line_active = self.current_line().active();
+    fn cursor_down(&mut self) -> Res<()> {
+        let prev_line_active = self.current_line()?.active();
 
         if self.active < self.lines.len() - SCROLL_DIST {
             self.active += 1;
-            self.current_line_mut().set_active(prev_line_active);
-        } else if self.scroll_down() {
-            self.current_line_mut().set_active(prev_line_active);
+            self.current_line_mut()?.set_active(prev_line_active);
+
+            Ok(())
+        } else if self.scroll_down()? {
+            self.current_line_mut()?.set_active(prev_line_active);
+
+            Ok(())
         } else {
             self.active = (self.active + 1).clamp(0, self.lines.len() - 1);
+
+            Ok(())
         }
     }
 
-    fn cursor_up(&mut self) {
-        let prev_line_active = self.current_line().active();
+    fn cursor_up(&mut self) -> Res<()> {
+        let prev_line_active = self.current_line()?.active();
 
         if self.active > SCROLL_DIST {
             self.active -= 1;
-            self.current_line_mut().set_active(prev_line_active);
-        } else if self.scroll_up() {
-            self.current_line_mut().set_active(prev_line_active);
+            self.current_line_mut()?.set_active(prev_line_active);
+
+            Ok(())
+        } else if self.scroll_up()? {
+            self.current_line_mut()?.set_active(prev_line_active);
+
+            Ok(())
         } else {
             self.active = self.active.saturating_sub(1);
+
+            Ok(())
         }
     }
 
     fn update(&mut self, message: &Message) -> Res<Option<Message>> {
         match message {
             pressed!(Key::Up) => {
-                self.cursor_up();
+                self.cursor_up()?;
 
                 Ok(None)
             }
 
             pressed!(Key::Down) => {
-                self.cursor_down();
+                self.cursor_down()?;
 
                 Ok(None)
             }
 
-            pressed!(Key::Left) if self.current_line().at_front() => {
-                self.cursor_up();
-                self.current_line_mut().set_active_back();
+            pressed!(Key::Left) if self.current_line()?.at_front() => {
+                self.cursor_up()?;
+                self.current_line_mut()?.set_active_back();
 
                 Ok(None)
             }
 
-            pressed!(Key::Right) if self.current_line().at_back() => {
-                self.cursor_down();
-                self.current_line_mut().set_active_front();
+            pressed!(Key::Right) if self.current_line()?.at_back() => {
+                self.cursor_down()?;
+                self.current_line_mut()?.set_active_front();
 
                 Ok(None)
             }
@@ -308,34 +327,34 @@ impl Buffer {
             pressed!(Key::Enter, shift + ctrl) => {
                 self.lines.insert(self.active, Default::default());
                 self.below
-                    .push(self.lines.pop_back().expect("at least one line"));
+                    .push(self.lines.pop_back().context("at least one line")?);
 
                 Ok(None)
             }
 
             pressed!(Key::Enter, ctrl) => {
-                self.cursor_down();
+                self.cursor_down()?;
                 self.lines.insert(self.active, Default::default());
                 self.below
-                    .push(self.lines.pop_back().expect("at least one line"));
+                    .push(self.lines.pop_back().context("at least one line")?);
 
                 Ok(None)
             }
 
             pressed!(Key::Enter) => {
-                let new_line = self.current_line_mut().split();
-                self.cursor_down();
+                let new_line = self.current_line_mut()?.split();
+                self.cursor_down()?;
                 self.lines.insert(self.active, new_line);
                 self.below
-                    .push(self.lines.pop_back().expect("at least one line"));
+                    .push(self.lines.pop_back().context("at least one line")?);
 
                 Ok(None)
             }
 
-            pressed!(Key::Backspace) if self.current_line().at_front() => {
-                let line = self.lines.remove(self.active).expect("active is valid");
-                self.scroll_up();
-                self.current_line_mut().append(line);
+            pressed!(Key::Backspace) if self.current_line()?.at_front() => {
+                let line = self.lines.remove(self.active).context("active is valid")?;
+                self.scroll_up()?;
+                self.current_line_mut()?.append(line);
                 if let Some(line_from_below) = self.below.pop() {
                     self.lines.push_back(line_from_below);
                 }
@@ -343,9 +362,9 @@ impl Buffer {
                 Ok(None)
             }
 
-            pressed!(Key::Delete) if self.current_line().at_back() => {
-                let line = self.lines.remove(self.active).expect("active is valid");
-                self.current_line_mut().append(line);
+            pressed!(Key::Delete) if self.current_line()?.at_back() => {
+                let line = self.lines.remove(self.active).context("active is valid")?;
+                self.current_line_mut()?.append(line);
                 if let Some(line_from_below) = self.below.pop() {
                     self.lines.push_back(line_from_below);
                 }
@@ -354,7 +373,7 @@ impl Buffer {
             }
 
             _ => {
-                self.current_line_mut().update(message)?;
+                self.current_line_mut()?.update(message)?;
 
                 Ok(None)
             }
