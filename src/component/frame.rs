@@ -4,11 +4,12 @@ use crate::{
         window::Window,
         Bounds, Component,
     },
-    core::Res,
+    core::{Res, State, STATE},
     message::{Input, Key, KeyCombo, Message},
     pressed,
     utils::out::Out,
 };
+use crossterm::terminal;
 
 #[derive(Debug)]
 pub struct Frame {
@@ -19,6 +20,18 @@ pub struct Frame {
 
 impl Frame {
     pub fn new() -> Res<Self> {
+        let (width, height) = terminal::size()?;
+
+        STATE.set(State {
+            bounds: Bounds {
+                x0: 0,
+                y0: 0,
+                x1: width,
+                y1: height,
+            },
+            ..Default::default()
+        });
+
         Ok(Self {
             top: TopBar::new()?,
             bottom: BottomBar::new()?,

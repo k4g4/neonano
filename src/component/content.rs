@@ -7,7 +7,7 @@ use crate::{
 };
 use anyhow::Context;
 use crossterm::{
-    cursor::{EnableBlinking, Hide, MoveDown, MoveToColumn, MoveToRow, Show},
+    cursor::{Hide, MoveDown, MoveToColumn, MoveToRow},
     style::Print,
     QueueableCommand,
 };
@@ -15,7 +15,6 @@ use std::{
     env,
     fs::{self, File, FileType},
     io::{self, BufRead, BufReader, ErrorKind},
-    iter,
     path::{Path, PathBuf},
 };
 
@@ -219,11 +218,13 @@ struct Buffer {
 impl Buffer {
     fn open(path: impl AsRef<Path>) -> Res<Self> {
         let file = BufReader::new(File::open(path)?);
-        let below = file
+        let mut below = file
             .lines()
             .map(|res| res.map(Into::into))
-            .chain(iter::once(Ok(Default::default())))
-            .collect::<Result<_, _>>()?;
+            .collect::<Result<Vec<_>, _>>()?;
+
+        below.push(Default::default());
+        below.reverse();
 
         Ok(Self {
             above: vec![],
@@ -348,7 +349,7 @@ impl Component for Buffer {
         }
 
         let middle = bounds.y0 + ((bounds.y1 - bounds.y0) / 2);
-        let above_indices = (bounds.y0..middle).rev();
+        let above_indices = bounds.y0..middle;
         let below_indices = middle + 1..bounds.y1;
 
         let line_feed = |out: &'out mut Out| -> Res<&'out mut Out> {
@@ -358,7 +359,8 @@ impl Component for Buffer {
         };
 
         let mut out = out;
-        for (line, y) in self.above.iter().rev().zip(above_indices).rev() {
+
+        for (line, y) in self.above.iter().rev().zip(above_indices.rev()).rev() {
             let line_bounds = Bounds {
                 y0: y,
                 y1: y + 1,
@@ -368,34 +370,26 @@ impl Component for Buffer {
             line.view(out, line_bounds, false)?;
             out = line_feed(out)?;
         }
+        out = line_feed(out)?;
 
+        for (line, y) in self.below.iter().rev().skip(1).zip(below_indices) {
+            let line_bounds = Bounds {
+                y0: y,
+                y1: y + 1,
+                ..bounds
+            };
+            line.view(out, line_bounds, false)?;
+            out = line_feed(out)?;
+        }
+
+        out.queue(MoveToRow(bounds.y0 + self.above.len() as u16))?;
         let line_bounds = Bounds {
             y0: middle,
             y1: middle + 1,
             ..bounds
         };
-        self.current_line()?.view(out, line_bounds, true)?;
-        out = line_feed(out)?;
-
-        for (line, y) in self.below.iter().skip(1).zip(below_indices) {
-            let line_bounds = Bounds {
-                y0: y,
-                y1: y + 1,
-                ..bounds
-            };
-            line.view(out, line_bounds, false)?;
-            out = line_feed(out)?;
-        }
-
-        if active {
-            let row = bounds.x0 + <u16>::try_from(self.above.len())?;
-            let column = bounds.y0 + <u16>::try_from(self.current_line()?.active())?;
-
-            out.queue(MoveToRow(row))?
-                .queue(MoveToColumn(column))?
-                .queue(Show)?
-                .queue(EnableBlinking)?;
-        }
+        self.current_line()?.view(out, line_bounds, active)?;
+        line_feed(out)?;
 
         Ok(())
     }

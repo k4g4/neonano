@@ -12,21 +12,29 @@ use crossterm::{
     terminal::{self, EnterAlternateScreen, LeaveAlternateScreen},
     QueueableCommand,
 };
-use std::io::{self, Write};
+use std::{
+    cell::Cell,
+    io::{self, Write},
+};
 
 pub type Res<T> = anyhow::Result<T>;
+
+#[derive(Copy, Clone, Default, Debug)]
+pub struct State {
+    pub bounds: Bounds,
+}
+
+thread_local! {
+    pub static STATE: Cell<State> = Default::default();
+}
 
 pub struct Core {
     frame: Frame,
     out: Out,
-    width: u16,
-    height: u16,
 }
 
 impl Core {
     pub fn new() -> Res<Self> {
-        let (width, height) = terminal::size()?;
-
         terminal::enable_raw_mode()?;
 
         let mut out = io::stdout().lock();
@@ -41,8 +49,6 @@ impl Core {
             Ok(Self {
                 frame: Frame::new()?,
                 out,
-                width,
-                height,
             })
         }
     }

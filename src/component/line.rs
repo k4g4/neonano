@@ -5,7 +5,11 @@ use crate::{
     pressed,
     utils::out::{Bounds, Out},
 };
-use crossterm::{style::Print, QueueableCommand};
+use crossterm::{
+    cursor::{EnableBlinking, MoveToColumn, Show},
+    style::Print,
+    QueueableCommand,
+};
 use std::iter;
 
 const TAB_SIZE: usize = 4;
@@ -96,12 +100,25 @@ impl Line {
         self.active_byte = byte_index;
     }
 
+    pub fn set_active_front(&mut self) {
+        self.active_byte = 0;
+    }
+
+    pub fn set_active_back(&mut self) {
+        self.active_byte = self.content.len();
+    }
+
     pub fn set_active_next(&mut self) {
-        self.active_byte = self.content[self.active_byte..]
+        if let Some(forward) = self.content[self.active_byte..]
             .char_indices()
+            .skip(1)
             .next()
             .map(|(i, _)| i)
-            .unwrap_or(self.len());
+        {
+            self.active_byte += forward;
+        } else {
+            self.set_active_back();
+        }
     }
 
     pub fn set_active_prev(&mut self) {
@@ -113,14 +130,6 @@ impl Line {
             .unwrap_or(0);
     }
 
-    pub fn set_active_front(&mut self) {
-        self.active_byte = 0;
-    }
-
-    pub fn set_active_back(&mut self) {
-        self.active_byte = self.len();
-    }
-
     pub fn split(&mut self) -> Self {
         Self {
             content: self.content.split_off(self.active_byte),
@@ -130,10 +139,6 @@ impl Line {
 
     pub fn append(&mut self, other: Self) {
         self.content += &other.content;
-    }
-
-    pub fn len(&self) -> usize {
-        self.content.len()
     }
 
     pub fn at_front(&self) -> bool {
@@ -163,7 +168,8 @@ impl Component for Line {
                     .char_indices()
                     .rev()
                     .find_map(nonalphanum)
-                    .unwrap_or(0);
+                    .unwrap_or(0)
+                    .saturating_sub(1);
 
                 Ok(None)
             }
@@ -179,7 +185,7 @@ impl Component for Line {
                     .char_indices()
                     .find_map(nonalphanum)
                 {
-                    self.active_byte += forward;
+                    self.active_byte += forward + 1;
                 } else {
                     self.set_active_back();
                 }
@@ -219,7 +225,8 @@ impl Component for Line {
                     .char_indices()
                     .rev()
                     .find_map(nonalphanum)
-                    .unwrap_or(0);
+                    .unwrap_or(0)
+                    .saturating_sub(1);
 
                 self.content.drain(self.active_byte..prev_active_byte);
 
@@ -240,8 +247,8 @@ impl Component for Line {
                     .char_indices()
                     .find_map(nonalphanum)
                 {
-                    self.content
-                        .drain(self.active_byte..self.active_byte + forward);
+                    let range = self.active_byte..self.active_byte + forward + 1;
+                    self.content.drain(range);
                 } else {
                     self.content.drain(self.active_byte..);
                 };
@@ -264,6 +271,12 @@ impl Component for Line {
     fn view(&self, out: &mut Out, bounds: Bounds, active: bool) -> Res<()> {
         for c in self.chars().take((bounds.x1 - bounds.x0).into()) {
             out.queue(Print(c))?;
+        }
+
+        if active {
+            out.queue(MoveToColumn(self.active() as u16))?
+                .queue(Show)?
+                .queue(EnableBlinking)?;
         }
 
         Ok(())

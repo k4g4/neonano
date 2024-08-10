@@ -7,7 +7,7 @@ use crossterm::{
 
 pub type Out = std::io::StdoutLock<'static>;
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Default, Debug)]
 pub struct Bounds {
     pub x0: u16,
     pub y0: u16,
