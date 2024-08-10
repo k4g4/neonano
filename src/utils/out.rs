@@ -1,6 +1,7 @@
 use crate::core::Res;
 use crossterm::{
-    style::{Color, ResetColor, SetBackgroundColor, SetForegroundColor},
+    cursor::{MoveDown, MoveLeft, RestorePosition, SavePosition},
+    style::{Color, Print, ResetColor, SetBackgroundColor, SetForegroundColor},
     QueueableCommand,
 };
 
@@ -32,16 +33,16 @@ impl Bounds {
     }
 }
 
-// pub fn clear(out: &mut Out, Bounds { x0, y0, x1, y1 }: Bounds) -> Res<&mut Out> {
-//     out.queue(SavePosition)?;
-//     for _ in y0..y1 {
-//         for _ in x0..x1 {
-//             out.queue(Print(' '))?;
-//         }
-//         out.queue(MoveDown(1))?.queue(MoveLeft(x1 - x0))?;
-//     }
-//     Ok(out.queue(RestorePosition)?)
-// }
+pub fn clear(out: &mut Out, Bounds { x0, y0, x1, y1 }: Bounds) -> Res<&mut Out> {
+    out.queue(SavePosition)?;
+    for _ in y0..y1 {
+        for _ in x0..x1 {
+            out.queue(Print(' '))?;
+        }
+        out.queue(MoveDown(1))?.queue(MoveLeft(x1 - x0))?;
+    }
+    Ok(out.queue(RestorePosition)?)
+}
 
 pub fn with_highlighted<'out, F>(out: &'out mut Out, f: F) -> Res<&'out mut Out>
 where

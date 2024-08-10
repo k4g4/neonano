@@ -7,7 +7,7 @@ use crate::{
 };
 use anyhow::Context;
 use crossterm::{
-    cursor::{Hide, MoveDown, MoveToColumn, MoveToRow},
+    cursor::{Hide, MoveDown, MoveToColumn},
     style::Print,
     QueueableCommand,
 };
@@ -77,14 +77,14 @@ impl Content {
 }
 
 #[derive(Clone, Debug)]
-struct Dir {
+struct FilePickerEntry {
     path: PathBuf,
     file_type: FileType,
 }
 
 #[derive(Clone, Debug)]
 struct FilePicker {
-    dirs: Vec<Dir>,
+    entries: Vec<FilePickerEntry>,
     selected: usize,
     history: Vec<PathBuf>,
     bounds: Bounds,
@@ -93,7 +93,7 @@ struct FilePicker {
 impl FilePicker {
     fn new(bounds: Bounds) -> Res<Self> {
         let mut filepicker = Self {
-            dirs: vec![],
+            entries: vec![],
             selected: 0,
             history: vec![env::current_dir()?],
             bounds,
@@ -104,12 +104,12 @@ impl FilePicker {
     }
 
     fn open(&mut self) -> Res<()> {
-        self.dirs = fs::read_dir(self.history.last().context("history is not empty")?)?
+        self.entries = fs::read_dir(self.history.last().context("history is not empty")?)?
             .map(|res| {
-                res.and_then(|dir| {
-                    Ok(Dir {
-                        path: dir.path(),
-                        file_type: dir.file_type()?,
+                res.and_then(|entry| {
+                    Ok(FilePickerEntry {
+                        path: entry.path(),
+                        file_type: entry.file_type()?,
                     })
                 })
             })
@@ -123,7 +123,7 @@ impl FilePicker {
         let update = match message {
             pressed!(Key::Up) => {
                 self.selected = if self.selected == 0 {
-                    self.dirs.len() - 1
+                    self.entries.len() - 1
                 } else {
                     self.selected - 1
                 };
@@ -131,7 +131,7 @@ impl FilePicker {
             }
 
             pressed!(Key::Down) => {
-                self.selected = if self.selected == self.dirs.len() - 1 {
+                self.selected = if self.selected == self.entries.len() - 1 {
                     0
                 } else {
                     self.selected + 1
@@ -140,7 +140,7 @@ impl FilePicker {
             }
 
             pressed!(Key::Enter) => {
-                let dir = &self.dirs[self.selected];
+                let dir = &self.entries[self.selected];
 
                 if dir.file_type.is_file() {
                     Some(Message::Open(dir.path.clone()))
@@ -173,12 +173,19 @@ impl FilePicker {
     fn view<'out>(&self, out: &'out mut Out, active: bool) -> Res<()> {
         out.queue(Hide)?;
 
+        let width = self.bounds.width().into();
         let mut out = out;
-        for (i, dir) in self.dirs.iter().enumerate() {
+        for (i, dir) in self.entries.iter().enumerate() {
             let queue_line = |out: &'out mut Out| -> Res<&'out mut Out> {
+                // let spare = width - dir.path.as_os_str().len();
+                let line = format!(
+                    "{} {:<width$}",
+                    if dir.file_type.is_dir() { '*' } else { '>' },
+                    dir.path.display()
+                );
+
                 Ok(out
-                    .queue(Print(if dir.file_type.is_dir() { "* " } else { "> " }))?
-                    .queue(Print(dir.path.display()))?
+                    .queue(Print(&line[..width]))?
                     .queue(MoveDown(1))?
                     .queue(MoveToColumn(self.bounds.x0))?)
             };
@@ -188,6 +195,16 @@ impl FilePicker {
             } else {
                 out = queue_line(out)?;
             }
+        }
+
+        if self.entries.len() < self.bounds.height().into() {
+            out::clear(
+                out,
+                Bounds {
+                    y0: self.bounds.y0 + u16::try_from(self.entries.len())?,
+                    ..self.bounds
+                },
+            )?;
         }
 
         Ok(())
@@ -385,6 +402,16 @@ impl Buffer {
             line.view(out, self.bounds.width(), active && i == self.active)?;
             out.queue(MoveDown(1))?
                 .queue(MoveToColumn(self.bounds.x0))?;
+        }
+
+        if self.lines.len() < self.bounds.height().into() {
+            out::clear(
+                out,
+                Bounds {
+                    y0: self.bounds.y0 + u16::try_from(self.lines.len())?,
+                    ..self.bounds
+                },
+            )?;
         }
 
         Ok(())
