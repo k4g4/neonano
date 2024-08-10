@@ -73,17 +73,9 @@ impl Line {
     }
 
     pub fn active(&self) -> usize {
-        let mut disp_index = 0;
-
-        for index in self.indices() {
-            disp_index = index.disp_index;
-
-            if index.byte_index == self.active_byte {
-                return disp_index;
-            }
-        }
-
-        disp_index + 1
+        self.indices()
+            .find_map(|index| (index.byte_index == self.active_byte).then(|| index.disp_index))
+            .unwrap_or(self.content.len())
     }
 
     pub fn set_active(&mut self, display_index: usize) {

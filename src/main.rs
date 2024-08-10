@@ -8,11 +8,10 @@ use std::fs::write;
 
 fn main() {
     write(
-        "error",
-        if let Err(error) = Core::new().and_then(Core::run) {
-            format!("{error:?}")
-        } else {
-            "".into()
+        "debug.txt",
+        match Core::new().and_then(Core::run) {
+            Ok(core) => format!("{core:#?}"),
+            Err(error) => format!("{error:?}"),
         },
     )
     .unwrap()

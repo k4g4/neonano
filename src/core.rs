@@ -16,6 +16,7 @@ use std::io::{self, Write};
 
 pub type Res<T> = anyhow::Result<T>;
 
+#[derive(Debug)]
 pub struct Core {
     frame: Frame,
     out: Out,
@@ -49,7 +50,7 @@ impl Core {
         }
     }
 
-    pub fn run(mut self) -> Res<()> {
+    pub fn run(mut self) -> Res<Self> {
         let input_reader = InputReader::new();
         let mut updated = true;
 
@@ -73,7 +74,7 @@ impl Core {
                     }
 
                     if quit {
-                        break 'runtime Ok(());
+                        break 'runtime Ok(self);
                     }
                 }
             }

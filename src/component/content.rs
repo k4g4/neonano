@@ -251,6 +251,14 @@ impl Buffer {
         self.lines.get_mut(self.active).context("active is valid")
     }
 
+    fn at_top(&self) -> bool {
+        self.active == 0
+    }
+
+    fn at_bottom(&self) -> bool {
+        self.active == self.lines.len() - 1
+    }
+
     fn scroll_down(&mut self) -> Res<bool> {
         if let Some(line_from_below) = self.below.pop() {
             self.lines.push_back(line_from_below);
@@ -304,27 +312,39 @@ impl Buffer {
     fn update(&mut self, message: &Message) -> Res<Option<Message>> {
         match message {
             pressed!(Key::Up) => {
-                self.cursor_up()?;
+                if self.at_top() {
+                    self.current_line_mut()?.set_active_front();
+                } else {
+                    self.cursor_up()?;
+                }
 
                 Ok(None)
             }
 
             pressed!(Key::Down) => {
-                self.cursor_down()?;
+                if self.at_bottom() {
+                    self.current_line_mut()?.set_active_back();
+                } else {
+                    self.cursor_down()?;
+                }
 
                 Ok(None)
             }
 
             pressed!(Key::Left) if self.current_line()?.at_front() => {
-                self.cursor_up()?;
-                self.current_line_mut()?.set_active_back();
+                if !self.at_top() {
+                    self.cursor_up()?;
+                    self.current_line_mut()?.set_active_back();
+                }
 
                 Ok(None)
             }
 
             pressed!(Key::Right) if self.current_line()?.at_back() => {
-                self.cursor_down()?;
-                self.current_line_mut()?.set_active_front();
+                if !self.at_bottom() {
+                    self.cursor_down()?;
+                    self.current_line_mut()?.set_active_front();
+                }
 
                 Ok(None)
             }
@@ -357,31 +377,34 @@ impl Buffer {
             }
 
             pressed!(Key::Backspace) if self.current_line()?.at_front() => {
-                let line = self.lines.remove(self.active).context("active is valid")?;
-                self.scroll_up()?;
-                self.current_line_mut()?.append(line);
-                if let Some(line_from_below) = self.below.pop() {
-                    self.lines.push_back(line_from_below);
+                if !self.at_top() {
+                    let line = self.lines.remove(self.active).context("active is valid")?;
+
+                    self.cursor_up()?;
+                    self.current_line_mut()?.set_active_back();
+                    self.current_line_mut()?.append(line);
+                    if let Some(line_from_below) = self.below.pop() {
+                        self.lines.push_back(line_from_below);
+                    }
                 }
 
                 Ok(None)
             }
 
             pressed!(Key::Delete) if self.current_line()?.at_back() => {
-                let line = self.lines.remove(self.active).context("active is valid")?;
-                self.current_line_mut()?.append(line);
-                if let Some(line_from_below) = self.below.pop() {
-                    self.lines.push_back(line_from_below);
+                if !self.at_bottom() {
+                    let line = self.lines.remove(self.active).context("active is valid")?;
+
+                    self.current_line_mut()?.append(line);
+                    if let Some(line_from_below) = self.below.pop() {
+                        self.lines.push_back(line_from_below);
+                    }
                 }
 
                 Ok(None)
             }
 
-            _ => {
-                self.current_line_mut()?.update(message)?;
-
-                Ok(None)
-            }
+            _ => self.current_line_mut()?.update(message).map(|_| None),
         }
     }
 
