@@ -12,9 +12,21 @@ use crossterm::{
     terminal::{self, EnterAlternateScreen, LeaveAlternateScreen},
     QueueableCommand,
 };
-use std::io::{self, Write};
+use std::{
+    cell::Cell,
+    io::{self, Write},
+};
 
 pub type Res<T> = anyhow::Result<T>;
+
+#[derive(Copy, Clone, Default, Debug)]
+pub struct Shared {
+    pub recycle: usize,
+}
+
+thread_local! {
+    pub static SHARED: Cell<Shared> = Default::default();
+}
 
 #[derive(Debug)]
 pub struct Core {

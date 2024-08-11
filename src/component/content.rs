@@ -1,6 +1,6 @@
 use crate::{
     component::line::{Line, RawIndex},
-    core::Res,
+    core::{Res, Shared, SHARED},
     message::{Input, Key, KeyCombo, Message},
     pressed,
     utils::out::{self, Bounds, Out},
@@ -40,6 +40,7 @@ impl Content {
                 if let Content::Buffer(buffer) = self {
                     *self = Self::FilePicker(FilePicker::new(buffer.bounds)?);
                 }
+
                 Ok(None)
             }
 
@@ -121,14 +122,15 @@ impl FilePicker {
     }
 
     fn update(&mut self, message: &Message) -> Res<Option<Message>> {
-        let update = match message {
+        match message {
             pressed!(Key::Up) => {
                 self.selected = if self.selected == 0 {
                     self.entries.len() - 1
                 } else {
                     self.selected - 1
                 };
-                None
+
+                Ok(None)
             }
 
             pressed!(Key::Down) => {
@@ -137,20 +139,22 @@ impl FilePicker {
                 } else {
                     self.selected + 1
                 };
-                None
+
+                Ok(None)
             }
 
             pressed!(Key::Enter) => {
                 let dir = &self.entries[self.selected];
 
                 if dir.file_type.is_file() {
-                    Some(Message::Open(dir.path.clone()))
+                    Ok(Some(Message::Open(dir.path.clone())))
                 } else if dir.file_type.is_dir() {
                     self.history.push(dir.path.clone());
                     self.open()?;
-                    None
+
+                    Ok(None)
                 } else {
-                    None
+                    Ok(None)
                 }
             }
 
@@ -162,13 +166,12 @@ impl FilePicker {
                         self.open()?;
                     }
                 }
-                None
+
+                Ok(None)
             }
 
-            _ => None,
-        };
-
-        Ok(update)
+            _ => Ok(None),
+        }
     }
 
     fn view<'out>(&self, out: &'out mut Out, active: bool) -> Res<()> {
@@ -364,6 +367,18 @@ impl Buffer {
         })
     }
 
+    fn jump_top(&mut self) -> Res<()> {
+        while self.cursor_up()? {}
+
+        Ok(())
+    }
+
+    fn jump_bottom(&mut self) -> Res<()> {
+        while self.cursor_down()? {}
+
+        Ok(())
+    }
+
     fn fix_lines(&mut self) -> Res<()> {
         let (len, height) = (self.lines.len(), self.bounds.height().into());
 
@@ -390,6 +405,10 @@ impl Buffer {
     }
 
     fn update(&mut self, message: &Message) -> Res<Option<Message>> {
+        SHARED.set(Shared {
+            recycle: self.recycle.len(),
+        });
+
         match message {
             pressed!(Key::Up) => {
                 if !self.cursor_up()? {
@@ -467,8 +486,22 @@ impl Buffer {
                 Ok(None)
             }
 
+            pressed!(Key::Home, ctrl) => {
+                self.jump_top()?;
+                self.index = RawIndex::index_front();
+
+                Ok(None)
+            }
+
             pressed!(Key::Home) => {
                 self.index = RawIndex::index_front();
+
+                Ok(None)
+            }
+
+            pressed!(Key::End, ctrl) => {
+                self.jump_bottom()?;
+                self.index = self.current_line()?.index_back(self.index)?.into();
 
                 Ok(None)
             }
