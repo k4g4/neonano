@@ -1,12 +1,11 @@
 use crate::{
     component::line::{Line, RawIndex},
     core::Res,
-    debug,
     message::{Input, Key, KeyCombo, Message},
     pressed,
     utils::{
         out::{self, Bounds, Out},
-        shared,
+        shared::status::{self, Pos},
     },
 };
 use anyhow::Context;
@@ -19,6 +18,7 @@ use std::{
     cmp::Ordering,
     collections::VecDeque,
     env,
+    fmt::Write,
     fs::{self, File, FileType},
     io::{self, BufRead, BufReader, ErrorKind},
     path::{Path, PathBuf},
@@ -35,14 +35,22 @@ pub enum Content {
 
 impl Content {
     pub fn new(bounds: Bounds) -> Res<Self> {
-        Ok(Self::FilePicker(FilePicker::new(bounds)?))
+        let filepicker = FilePicker::new(bounds)?;
+        filepicker.update_status()?;
+
+        Ok(Self::FilePicker(filepicker))
     }
 
     pub fn update(&mut self, message: &Message) -> Res<Option<Message>> {
         match message {
             pressed!(Key::Esc) => {
                 if let Content::Buffer(buffer) = self {
-                    *self = Self::FilePicker(FilePicker::new(buffer.bounds)?);
+                    let filepicker = FilePicker::new(buffer.bounds)?;
+
+                    status::reset_all()?;
+                    filepicker.update_status()?;
+
+                    *self = Self::FilePicker(filepicker);
                 }
 
                 Ok(None)
@@ -52,6 +60,9 @@ impl Content {
                 if let Content::FilePicker(filepicker) = self {
                     match Buffer::open(path, filepicker.bounds) {
                         Ok(buffer) => {
+                            status::reset_all()?;
+                            buffer.update_status()?;
+
                             *self = Self::Buffer(buffer);
                         }
                         Err(error) => {
@@ -68,8 +79,18 @@ impl Content {
             }
 
             _ => match self {
-                Content::Buffer(buffer) => buffer.update(message),
-                Content::FilePicker(filepicker) => filepicker.update(message),
+                Content::Buffer(buffer) => {
+                    let update = buffer.update(message)?;
+                    buffer.update_status()?;
+
+                    Ok(update)
+                }
+                Content::FilePicker(filepicker) => {
+                    let update = filepicker.update(message)?;
+                    filepicker.update_status()?;
+
+                    Ok(update)
+                }
             },
         }
     }
@@ -176,6 +197,21 @@ impl FilePicker {
 
             _ => Ok(None),
         }
+    }
+
+    fn update_status(&self) -> Res<()> {
+        status::set(Pos::Bottom, |status| -> Res<_> {
+            Ok(write!(
+                status,
+                "{}",
+                self.history
+                    .last()
+                    .context("history is not empty")?
+                    .display()
+            )?)
+        })??;
+
+        Ok(())
     }
 
     fn view<'out>(&self, out: &'out mut Out, active: bool) -> Res<()> {
@@ -415,8 +451,6 @@ impl Buffer {
     }
 
     fn update(&mut self, message: &Message) -> Res<Option<Message>> {
-        shared::set(|shared| shared.recycle = self.recycle.len());
-
         match message {
             pressed!(Key::Up) => {
                 if !self.cursor_up()? {
@@ -607,6 +641,14 @@ impl Buffer {
 
             _ => Ok(None),
         }
+    }
+
+    fn update_status(&self) -> Res<()> {
+        status::set(Pos::BottomRight, |status| {
+            write!(status, "recycle: {}", self.recycle.len())?;
+
+            Ok(())
+        })?
     }
 
     fn view(&self, out: &mut Out, active: bool) -> Res<()> {

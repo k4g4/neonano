@@ -4,6 +4,7 @@ use crate::{
     utils::{
         input::InputReader,
         out::{Bounds, Out},
+        shared::status,
     },
 };
 use crossterm::{
@@ -33,6 +34,7 @@ impl Core {
         };
 
         terminal::enable_raw_mode()?;
+        status::reset_all()?;
 
         let mut out = io::stdout().lock();
         if let Err(error) = out
