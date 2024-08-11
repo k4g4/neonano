@@ -214,34 +214,38 @@ impl FilePicker {
 #[derive(Clone, Debug)]
 struct Buffer {
     lines: VecDeque<Line>,
-    above: Vec<Line>,
-    below: Vec<Line>,
+    above: String,
+    below: String,
     active: usize,
     index: RawIndex,
     bounds: Bounds,
+    recycle: Vec<Line>,
 }
 
 impl Buffer {
     fn open(path: impl AsRef<Path>, bounds: Bounds) -> Res<Self> {
-        let file = BufReader::new(File::open(path)?);
-        let mut lines = file
-            .lines()
-            .map(|res| res.map(Into::into))
-            .collect::<Result<Vec<_>, _>>()?;
         let height = bounds.height().into();
-        let below = if height < lines.len() {
-            lines.split_off(height)
-        } else {
-            vec![]
-        };
+        let file = BufReader::new(File::open(path)?);
+        let mut lines = file.lines().collect::<Result<Vec<_>, _>>()?;
+        let below = (height < lines.len())
+            .then(|| {
+                lines
+                    .split_off(height)
+                    .iter()
+                    .rev()
+                    .flat_map(|line| ["\n", line])
+                    .collect()
+            })
+            .unwrap_or_default();
 
         Ok(Self {
-            lines: lines.into(),
-            above: vec![],
+            lines: lines.into_iter().map(Into::into).collect(),
+            above: String::new(),
             below,
             active: 0,
             index: RawIndex::index_front(),
             bounds,
+            recycle: vec![],
         })
     }
 
@@ -261,11 +265,53 @@ impl Buffer {
         self.active == self.lines.len() - 1
     }
 
+    fn insert_below(&mut self, line: Line) {
+        self.below.push('\n');
+        self.below.push_str(line.as_ref());
+        self.recycle.push(line);
+    }
+
+    fn insert_above(&mut self, line: Line) {
+        self.above.push('\n');
+        self.above.push_str(line.as_ref());
+        self.recycle.push(line);
+    }
+
+    fn take_from_below(&mut self) -> Res<Option<Line>> {
+        if self.below.is_empty() {
+            Ok(None)
+        } else {
+            let mut new_line = self.recycle.pop().unwrap_or_default();
+            let pos = self.below.rfind('\n').context("newline before each line")?;
+
+            new_line.clear();
+            new_line.append(self.below[pos..].trim_start_matches('\n'));
+            self.below.truncate(pos);
+
+            Ok(Some(new_line))
+        }
+    }
+
+    fn take_from_above(&mut self) -> Res<Option<Line>> {
+        if self.above.is_empty() {
+            Ok(None)
+        } else {
+            let mut new_line = self.recycle.pop().unwrap_or_default();
+            let pos = self.above.rfind('\n').context("newline before each line")?;
+
+            new_line.clear();
+            new_line.append(self.above[pos..].trim_start_matches('\n'));
+            self.above.truncate(pos);
+
+            Ok(Some(new_line))
+        }
+    }
+
     fn scroll_down(&mut self) -> Res<bool> {
-        if let Some(line_from_below) = self.below.pop() {
+        if let Some(line_from_below) = self.take_from_below()? {
             self.lines.push_back(line_from_below);
             let line_to_above = self.lines.pop_front().context("at least one line")?;
-            self.above.push(line_to_above);
+            self.insert_above(line_to_above);
 
             Ok(true)
         } else {
@@ -274,7 +320,7 @@ impl Buffer {
     }
 
     fn scroll_up(&mut self) -> Res<bool> {
-        if let Some(line_from_above) = self.above.pop() {
+        if let Some(line_from_above) = self.take_from_above()? {
             self.lines.push_front(line_from_above);
             self.fix_lines()?;
 
@@ -319,19 +365,19 @@ impl Buffer {
     }
 
     fn fix_lines(&mut self) -> Res<()> {
-        let height = self.bounds.height().into();
+        let (len, height) = (self.lines.len(), self.bounds.height().into());
 
-        match self.lines.len().cmp(&height) {
+        match len.cmp(&height) {
             Ordering::Greater => {
-                for _ in height..self.lines.len() {
-                    self.below
-                        .push(self.lines.pop_back().context("at least one line")?);
+                for _ in height..len {
+                    let new_line = self.lines.pop_back().context("len > height >= 0")?;
+                    self.insert_below(new_line);
                 }
             }
 
             Ordering::Less => {
-                for _ in self.lines.len()..height {
-                    if let Some(line_from_below) = self.below.pop() {
+                for _ in len..height {
+                    if let Some(line_from_below) = self.take_from_below()? {
                         self.lines.push_back(line_from_below);
                     }
                 }

@@ -34,6 +34,12 @@ impl From<String> for Line {
     }
 }
 
+impl AsRef<str> for Line {
+    fn as_ref(&self) -> &str {
+        &self.content
+    }
+}
+
 #[derive(Copy, Clone, Default, Debug)]
 pub struct Index {
     display: usize,
@@ -200,12 +206,16 @@ impl Line {
         })
     }
 
-    pub fn append(&mut self, other: Self) {
-        self.content += &other.content;
+    pub fn clear(&mut self) {
+        self.content.clear();
     }
 
-    pub fn prepend(&mut self, other: Self) {
-        self.content = other.content + &self.content;
+    pub fn append(&mut self, other: impl AsRef<str>) {
+        self.content += other.as_ref();
+    }
+
+    pub fn prepend(&mut self, other: impl AsRef<str>) {
+        self.content.insert_str(0, other.as_ref());
     }
 
     pub fn at_back(&self, index: Index) -> bool {
@@ -220,63 +230,6 @@ impl Line {
         self.content.remove(index.byte);
     }
 
-    /*
-                pressed!(Key::Home) => Ok(Default::default()),
-
-                pressed!(Key::End) => Ok(self.last_index(index.into())?.unwrap_or(index)),
-
-                &pressed!(Key::Char(c)) => {
-                    self.insert(index, c);
-
-                    self.next_index(index)?.context("inserted new char")
-                }
-
-                pressed!(Key::Backspace, ctrl) => {
-                    let start =
-                        if let Some(result) = self.rindices_from(index)?.find_map(find_nonalphanum) {
-                            result?
-                        } else {
-                            Default::default()
-                        };
-
-                    self.content.drain(start.byte..index.byte);
-
-                    Ok(start)
-                }
-
-                pressed!(Key::Backspace) => {
-                    if let Some(prev) = self.prev_index(index)? {
-                        self.content.remove(prev.byte);
-
-                        Ok(prev)
-                    } else {
-                        Ok(index)
-                    }
-                }
-
-                pressed!(Key::Delete, ctrl) => {
-                    let end = if let Some(result) = self.indices_from(index)?.find_map(find_nonalphanum)
-                    {
-                        result?
-                    } else {
-                        self.last_index(index.into())?.unwrap_or(index)
-                    };
-
-                    self.content.drain(index.byte..end.byte);
-
-                    Ok(index)
-                }
-
-                pressed!(Key::Delete) => {
-                    self.content.remove(index.byte);
-
-                    Ok(index)
-                }
-
-                _ => Ok(index),
-            }
-        }
-    */
     pub fn view(&self, out: &mut Out, width: u16, active: Option<Index>) -> Res<()> {
         for c in self.chars().take(width.into()) {
             out.queue(Print(c))?;
