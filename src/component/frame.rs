@@ -1,13 +1,15 @@
-use crossterm::{style::Print, QueueableCommand};
-use std::{fmt::Write, marker::PhantomData};
-
 use crate::{
     component::window::Window,
-    core::{Res, Shared, SHARED},
+    core::Res,
     message::{Input, Key, KeyCombo, Message},
     pressed,
-    utils::out::{self, Bounds, Out},
+    utils::{
+        out::{self, Bounds, Out},
+        shared,
+    },
 };
+use crossterm::{style::Print, QueueableCommand};
+use std::{fmt::Write, marker::PhantomData};
 
 #[derive(Debug)]
 pub struct Frame {
@@ -37,9 +39,12 @@ impl Frame {
         if update.is_some() {
             Ok(update)
         } else {
+            let update = self.window.update(message)?;
+
             self.top.update(message)?;
             self.bottom.update(message)?;
-            self.window.update(message)
+
+            Ok(update)
         }
     }
 
@@ -73,11 +78,20 @@ struct StatusBar<S> {
 
 impl<S: Status> StatusBar<S> {
     fn new(bounds: Bounds) -> Res<Self> {
+        let mut left = String::new();
+        S::left(&mut left)?;
+
+        let mut middle = String::new();
+        S::middle(&mut middle)?;
+
+        let mut right = String::new();
+        S::right(&mut right)?;
+
         Ok(Self {
             bounds,
-            left: String::new(),
-            middle: String::new(),
-            right: String::new(),
+            left,
+            middle,
+            right,
             status: PhantomData,
         })
     }
@@ -94,8 +108,6 @@ impl<S: Status> StatusBar<S> {
     }
 
     fn view(&self, out: &mut Out) -> Res<()> {
-        let _shared = SHARED.get();
-
         out::with_highlighted(out, |out| {
             let (left_bounds, middle_bounds, right_bounds) = self.bounds.vsplit3();
 
@@ -143,22 +155,22 @@ impl Status for Top {
 
 impl Status for Bottom {
     fn left(status: &mut impl Write) -> Res<()> {
-        status.write_str("hello")?;
+        shared::get(|shared| {
+            status.write_str(&shared.debug)?;
 
-        Ok(())
+            Ok(())
+        })
     }
 
-    fn middle(status: &mut impl Write) -> Res<()> {
-        status.write_str("world")?;
-
+    fn middle(_status: &mut impl Write) -> Res<()> {
         Ok(())
     }
 
     fn right(status: &mut impl Write) -> Res<()> {
-        let Shared { recycle, .. } = SHARED.get();
+        shared::get(|shared| {
+            write!(status, "recycle: {}", shared.recycle)?;
 
-        write!(status, "recycle: {recycle}")?;
-
-        Ok(())
+            Ok(())
+        })
     }
 }

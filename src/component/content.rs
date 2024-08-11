@@ -1,9 +1,13 @@
 use crate::{
     component::line::{Line, RawIndex},
-    core::{Res, Shared, SHARED},
+    core::Res,
+    debug,
     message::{Input, Key, KeyCombo, Message},
     pressed,
-    utils::out::{self, Bounds, Out},
+    utils::{
+        out::{self, Bounds, Out},
+        shared,
+    },
 };
 use anyhow::Context;
 use crossterm::{
@@ -334,37 +338,43 @@ impl Buffer {
     }
 
     fn cursor_down(&mut self) -> Res<bool> {
-        Ok(if self.active < self.lines.len() - SCROLL_DIST {
+        if self.active < self.lines.len() - SCROLL_DIST {
             self.active += 1;
             self.index.invalidate();
-            true
+
+            Ok(true)
         } else if self.scroll_down()? {
             self.index.invalidate();
-            true
+
+            Ok(true)
         } else if self.active < self.lines.len() - 1 {
             self.active += 1;
             self.index.invalidate();
-            true
+
+            Ok(true)
         } else {
-            false
-        })
+            Ok(false)
+        }
     }
 
     fn cursor_up(&mut self) -> Res<bool> {
-        Ok(if self.active > SCROLL_DIST {
+        if self.active > SCROLL_DIST {
             self.active -= 1;
             self.index.invalidate();
-            true
+
+            Ok(true)
         } else if self.scroll_up()? {
             self.index.invalidate();
-            true
+
+            Ok(true)
         } else if self.active > 0 {
             self.active -= 1;
             self.index.invalidate();
-            true
+
+            Ok(true)
         } else {
-            false
-        })
+            Ok(false)
+        }
     }
 
     fn jump_top(&mut self) -> Res<()> {
@@ -405,9 +415,7 @@ impl Buffer {
     }
 
     fn update(&mut self, message: &Message) -> Res<Option<Message>> {
-        SHARED.set(Shared {
-            recycle: self.recycle.len(),
-        });
+        shared::set(|shared| shared.recycle = self.recycle.len());
 
         match message {
             pressed!(Key::Up) => {
@@ -418,7 +426,7 @@ impl Buffer {
                 Ok(None)
             }
 
-            pressed!(Key::Down) if !self.at_bottom() => {
+            pressed!(Key::Down) => {
                 if !self.cursor_down()? {
                     self.index = self.current_line()?.index_back(self.index)?.into();
                 }
