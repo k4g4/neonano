@@ -1,9 +1,4 @@
-use crate::{
-    core::Res,
-    message::{Input, Key, KeyCombo, Message},
-    pressed,
-    utils::out::Out,
-};
+use crate::{core::Res, utils::out::Out};
 use anyhow::Context;
 use crossterm::{
     cursor::{EnableBlinking, MoveToColumn, Show},
@@ -81,32 +76,32 @@ impl From<Index> for RawIndex {
 
 impl Line {
     fn indices_from(&self, from: Index) -> Res<impl Iterator<Item = Index> + '_> {
-        Ok(self
-            .content
-            .get(from.byte..)
-            .context("byte is on char boundary")?
-            .chars()
-            .scan(from, |state, c| {
-                let index = *state;
-                state.display += char_width(c);
-                state.byte += c.len_utf8();
-                Some(index)
-            }))
+        Ok(iter::once(from).chain(
+            self.content
+                .get(from.byte..)
+                .context("byte is on char boundary")?
+                .chars()
+                .scan(from, |index, c| {
+                    index.display += char_width(c);
+                    index.byte += c.len_utf8();
+                    Some(*index)
+                }),
+        ))
     }
 
     fn rindices_from(&self, from: Index) -> Res<impl Iterator<Item = Index> + '_> {
-        Ok(self
-            .content
-            .get(..from.byte)
-            .context("byte is on char boundary")?
-            .chars()
-            .rev()
-            .scan(from, |state, c| {
-                let index = *state;
-                state.display -= char_width(c);
-                state.byte -= c.len_utf8();
-                Some(index)
-            }))
+        Ok(iter::once(from).chain(
+            self.content
+                .get(..from.byte)
+                .context("byte is on char boundary")?
+                .chars()
+                .rev()
+                .scan(from, |index, c| {
+                    index.display -= char_width(c);
+                    index.byte -= c.len_utf8();
+                    Some(*index)
+                }),
+        ))
     }
 
     fn indices(&self) -> impl Iterator<Item = Index> + '_ {
@@ -138,10 +133,7 @@ impl Line {
                     if valid.display >= index.display() {
                         Err(valid)
                     } else {
-                        Ok(Index {
-                            display: valid.display + 1,
-                            ..valid
-                        })
+                        Ok(valid)
                     }
                 });
 
@@ -150,11 +142,11 @@ impl Line {
     }
 
     pub fn index_forward(&self, index: Index) -> Res<Option<Index>> {
-        Ok(self.indices_from(index)?.next())
+        Ok(self.indices_from(index)?.skip(1).next())
     }
 
     pub fn index_backward(&self, index: Index) -> Res<Option<Index>> {
-        Ok(self.rindices_from(index)?.next())
+        Ok(self.rindices_from(index)?.skip(1).next())
     }
 
     pub fn index_forward_word(&self, index: Index) -> Res<Option<Index>> {
@@ -210,6 +202,10 @@ impl Line {
 
     pub fn append(&mut self, other: Self) {
         self.content += &other.content;
+    }
+
+    pub fn prepend(&mut self, other: Self) {
+        self.content = other.content + &self.content;
     }
 
     pub fn at_back(&self, index: Index) -> bool {

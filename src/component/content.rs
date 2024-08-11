@@ -12,6 +12,7 @@ use crossterm::{
     QueueableCommand,
 };
 use std::{
+    cmp::Ordering,
     collections::VecDeque,
     env,
     fs::{self, File, FileType},
@@ -177,7 +178,6 @@ impl FilePicker {
         let mut out = out;
         for (i, dir) in self.entries.iter().enumerate() {
             let queue_line = |out: &'out mut Out| -> Res<&'out mut Out> {
-                // let spare = width - dir.path.as_os_str().len();
                 let line = format!(
                     "{} {:<width$}",
                     if dir.file_type.is_dir() { '*' } else { '>' },
@@ -275,9 +275,8 @@ impl Buffer {
 
     fn scroll_up(&mut self) -> Res<bool> {
         if let Some(line_from_above) = self.above.pop() {
-            self.lines.push_back(line_from_above);
-            let line_to_below = self.lines.pop_back().context("at least one line")?;
-            self.below.push(line_to_below);
+            self.lines.push_front(line_from_above);
+            self.fix_lines()?;
 
             Ok(true)
         } else {
@@ -317,6 +316,31 @@ impl Buffer {
         } else {
             false
         })
+    }
+
+    fn fix_lines(&mut self) -> Res<()> {
+        let height = self.bounds.height().into();
+
+        match self.lines.len().cmp(&height) {
+            Ordering::Greater => {
+                for _ in height..self.lines.len() {
+                    self.below
+                        .push(self.lines.pop_back().context("at least one line")?);
+                }
+            }
+
+            Ordering::Less => {
+                for _ in self.lines.len()..height {
+                    if let Some(line_from_below) = self.below.pop() {
+                        self.lines.push_back(line_from_below);
+                    }
+                }
+            }
+
+            _ => {}
+        }
+
+        Ok(())
     }
 
     fn update(&mut self, message: &Message) -> Res<Option<Message>> {
@@ -424,8 +448,7 @@ impl Buffer {
 
             pressed!(Key::Enter, shift + ctrl) => {
                 self.lines.insert(self.active, Default::default());
-                self.below
-                    .push(self.lines.pop_back().context("at least one line")?);
+                self.fix_lines()?;
 
                 Ok(None)
             }
@@ -433,8 +456,7 @@ impl Buffer {
             pressed!(Key::Enter, ctrl) => {
                 self.cursor_down()?;
                 self.lines.insert(self.active, Default::default());
-                self.below
-                    .push(self.lines.pop_back().context("at least one line")?);
+                self.fix_lines()?;
 
                 Ok(None)
             }
@@ -443,14 +465,13 @@ impl Buffer {
                 let corrected = self.current_line()?.correct_index(self.index);
                 let new_line = self.current_line_mut()?.split_at(corrected)?;
 
-                self.index = corrected.into();
+                self.index = RawIndex::index_front();
                 if self.cursor_down()? {
                     self.lines.insert(self.active, new_line);
                 } else {
                     self.lines.push_back(new_line);
                 }
-                self.below
-                    .push(self.lines.pop_back().context("at least one line")?);
+                self.fix_lines()?;
 
                 Ok(None)
             }
@@ -460,9 +481,7 @@ impl Buffer {
                     if !self.at_top() {
                         let line = self.lines.remove(self.active).context("active is valid")?;
 
-                        if let Some(line_from_below) = self.below.pop() {
-                            self.lines.push_back(line_from_below);
-                        }
+                        self.fix_lines()?;
                         self.cursor_up()?;
                         self.index = self.current_line()?.index_back(self.index)?.into();
                         self.current_line_mut()?.append(line);
@@ -488,10 +507,8 @@ impl Buffer {
                     if !self.at_bottom() {
                         let line = self.lines.remove(self.active).context("active is valid")?;
 
-                        if let Some(line_from_below) = self.below.pop() {
-                            self.lines.push_back(line_from_below);
-                        }
-                        self.current_line_mut()?.append(line);
+                        self.fix_lines()?;
+                        self.current_line_mut()?.prepend(line);
                     }
                 } else {
                     self.current_line_mut()?.remove(corrected);
