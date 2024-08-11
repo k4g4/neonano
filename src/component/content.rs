@@ -1,5 +1,5 @@
 use crate::{
-    component::line::Line,
+    component::line::{Line, RawIndex},
     core::Res,
     message::{Input, Key, KeyCombo, Message},
     pressed,
@@ -211,12 +211,13 @@ impl FilePicker {
     }
 }
 
-#[derive(Clone, Default, Debug)]
+#[derive(Clone, Debug)]
 struct Buffer {
     lines: VecDeque<Line>,
     above: Vec<Line>,
     below: Vec<Line>,
     active: usize,
+    index: RawIndex,
     bounds: Bounds,
 }
 
@@ -239,6 +240,7 @@ impl Buffer {
             above: vec![],
             below,
             active: 0,
+            index: RawIndex::index_front(),
             bounds,
         })
     }
@@ -283,68 +285,139 @@ impl Buffer {
         }
     }
 
-    fn cursor_down(&mut self) -> Res<()> {
-        let prev_line_active = self.current_line()?.active();
-
-        if self.active < self.lines.len() - SCROLL_DIST {
+    fn cursor_down(&mut self) -> Res<bool> {
+        Ok(if self.active < self.lines.len() - SCROLL_DIST {
             self.active += 1;
-        } else if !self.scroll_down()? {
-            self.active = (self.active + 1).clamp(0, self.lines.len() - 1);
-        }
-        self.current_line_mut()?.set_active(prev_line_active);
-
-        Ok(())
+            self.index.invalidate();
+            true
+        } else if self.scroll_down()? {
+            self.index.invalidate();
+            true
+        } else if self.active < self.lines.len() - 1 {
+            self.active += 1;
+            self.index.invalidate();
+            true
+        } else {
+            false
+        })
     }
 
-    fn cursor_up(&mut self) -> Res<()> {
-        let prev_line_active = self.current_line()?.active();
-
-        if self.active > SCROLL_DIST {
+    fn cursor_up(&mut self) -> Res<bool> {
+        Ok(if self.active > SCROLL_DIST {
             self.active -= 1;
-        } else if !self.scroll_up()? {
-            self.active = self.active.saturating_sub(1);
-        }
-        self.current_line_mut()?.set_active(prev_line_active);
-
-        Ok(())
+            self.index.invalidate();
+            true
+        } else if self.scroll_up()? {
+            self.index.invalidate();
+            true
+        } else if self.active > 0 {
+            self.active -= 1;
+            self.index.invalidate();
+            true
+        } else {
+            false
+        })
     }
 
     fn update(&mut self, message: &Message) -> Res<Option<Message>> {
         match message {
             pressed!(Key::Up) => {
-                if self.at_top() {
-                    self.current_line_mut()?.set_active_front();
+                if !self.cursor_up()? {
+                    self.index = RawIndex::index_front();
+                }
+
+                Ok(None)
+            }
+
+            pressed!(Key::Down) if !self.at_bottom() => {
+                if !self.cursor_down()? {
+                    self.index = self.current_line()?.index_back(self.index)?.into();
+                }
+
+                Ok(None)
+            }
+
+            pressed!(Key::Left, ctrl) => {
+                let corrected = self.current_line()?.correct_index(self.index);
+                let index =
+                    if let Some(index) = self.current_line()?.index_backward_word(corrected)? {
+                        index
+                    } else if self.cursor_up()? {
+                        self.current_line()?.index_back(corrected.into())?
+                    } else {
+                        corrected
+                    };
+
+                self.index = index.into();
+
+                Ok(None)
+            }
+
+            pressed!(Key::Left) => {
+                let corrected = self.current_line()?.correct_index(self.index);
+
+                self.index = if let Some(index) = self.current_line()?.index_backward(corrected)? {
+                    index
+                } else if self.cursor_up()? {
+                    self.current_line()?.index_back(corrected.into())?
                 } else {
-                    self.cursor_up()?;
+                    corrected
                 }
+                .into();
 
                 Ok(None)
             }
 
-            pressed!(Key::Down) => {
-                if self.at_bottom() {
-                    self.current_line_mut()?.set_active_back();
+            pressed!(Key::Right, ctrl) => {
+                let corrected = self.current_line()?.correct_index(self.index);
+
+                self.index =
+                    if let Some(index) = self.current_line()?.index_forward_word(corrected)? {
+                        index.into()
+                    } else if self.cursor_down()? {
+                        RawIndex::index_front()
+                    } else {
+                        corrected.into()
+                    };
+
+                Ok(None)
+            }
+
+            pressed!(Key::Right) => {
+                let corrected = self.current_line()?.correct_index(self.index);
+
+                self.index = if let Some(index) = self.current_line()?.index_forward(corrected)? {
+                    index.into()
+                } else if self.cursor_down()? {
+                    RawIndex::index_front()
                 } else {
-                    self.cursor_down()?;
-                }
+                    corrected.into()
+                };
 
                 Ok(None)
             }
 
-            pressed!(Key::Left) if self.current_line()?.at_front() => {
-                if !self.at_top() {
-                    self.cursor_up()?;
-                    self.current_line_mut()?.set_active_back();
-                }
+            pressed!(Key::Home) => {
+                self.index = RawIndex::index_front();
 
                 Ok(None)
             }
 
-            pressed!(Key::Right) if self.current_line()?.at_back() => {
-                if !self.at_bottom() {
-                    self.cursor_down()?;
-                    self.current_line_mut()?.set_active_front();
-                }
+            pressed!(Key::End) => {
+                self.index = self.current_line()?.index_back(self.index)?.into();
+
+                Ok(None)
+            }
+
+            &pressed!(Key::Char(c)) => {
+                let corrected = self.current_line()?.correct_index(self.index);
+
+                self.current_line_mut()?.insert(corrected, c);
+                self.index = self
+                    .current_line()?
+                    .index_forward(corrected)?
+                    .unwrap_or(corrected)
+                    .into();
 
                 Ok(None)
             }
@@ -367,44 +440,68 @@ impl Buffer {
             }
 
             pressed!(Key::Enter) => {
-                let new_line = self.current_line_mut()?.split();
-                self.cursor_down()?;
-                self.lines.insert(self.active, new_line);
+                let corrected = self.current_line()?.correct_index(self.index);
+                let new_line = self.current_line_mut()?.split_at(corrected)?;
+
+                self.index = corrected.into();
+                if self.cursor_down()? {
+                    self.lines.insert(self.active, new_line);
+                } else {
+                    self.lines.push_back(new_line);
+                }
                 self.below
                     .push(self.lines.pop_back().context("at least one line")?);
 
                 Ok(None)
             }
 
-            pressed!(Key::Backspace) if self.current_line()?.at_front() => {
-                if !self.at_top() {
-                    let line = self.lines.remove(self.active).context("active is valid")?;
+            pressed!(Key::Backspace) => {
+                if self.index.at_front() {
+                    if !self.at_top() {
+                        let line = self.lines.remove(self.active).context("active is valid")?;
 
-                    self.cursor_up()?;
-                    self.current_line_mut()?.set_active_back();
-                    self.current_line_mut()?.append(line);
-                    if let Some(line_from_below) = self.below.pop() {
-                        self.lines.push_back(line_from_below);
+                        if let Some(line_from_below) = self.below.pop() {
+                            self.lines.push_back(line_from_below);
+                        }
+                        self.cursor_up()?;
+                        self.index = self.current_line()?.index_back(self.index)?.into();
+                        self.current_line_mut()?.append(line);
                     }
+                } else {
+                    let corrected = self.current_line()?.correct_index(self.index);
+                    let index = self
+                        .current_line()?
+                        .index_backward(corrected)?
+                        .unwrap_or_default();
+
+                    self.current_line_mut()?.remove(index);
+                    self.index = index.into();
                 }
 
                 Ok(None)
             }
 
-            pressed!(Key::Delete) if self.current_line()?.at_back() => {
-                if !self.at_bottom() {
-                    let line = self.lines.remove(self.active).context("active is valid")?;
+            pressed!(Key::Delete) => {
+                let corrected = self.current_line()?.correct_index(self.index);
 
-                    self.current_line_mut()?.append(line);
-                    if let Some(line_from_below) = self.below.pop() {
-                        self.lines.push_back(line_from_below);
+                if self.current_line()?.at_back(corrected) {
+                    if !self.at_bottom() {
+                        let line = self.lines.remove(self.active).context("active is valid")?;
+
+                        if let Some(line_from_below) = self.below.pop() {
+                            self.lines.push_back(line_from_below);
+                        }
+                        self.current_line_mut()?.append(line);
                     }
+                } else {
+                    self.current_line_mut()?.remove(corrected);
                 }
+                self.index = corrected.into();
 
                 Ok(None)
             }
 
-            _ => self.current_line_mut()?.update(message).map(|_| None),
+            _ => Ok(None),
         }
     }
 
@@ -413,7 +510,7 @@ impl Buffer {
 
         for (i, line) in self.lines.iter().enumerate() {
             if i != self.active {
-                line.view(out, self.bounds.width(), false)?;
+                line.view(out, self.bounds.width(), None)?;
             }
             out.queue(MoveDown(1))?
                 .queue(MoveToColumn(self.bounds.x0))?;
@@ -430,8 +527,15 @@ impl Buffer {
         }
 
         out.queue(MoveToRow(self.bounds.y0 + u16::try_from(self.active)?))?;
-        self.current_line()?
-            .view(out, self.bounds.width(), active)?;
+        self.current_line()?.view(
+            out,
+            self.bounds.width(),
+            if active {
+                Some(self.current_line()?.correct_index(self.index))
+            } else {
+                None
+            },
+        )?;
 
         Ok(())
     }

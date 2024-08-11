@@ -4,6 +4,7 @@ use crate::{
     pressed,
     utils::out::Out,
 };
+use anyhow::Context;
 use crossterm::{
     cursor::{EnableBlinking, MoveToColumn, Show},
     style::Print,
@@ -20,230 +21,273 @@ fn char_width(c: char) -> usize {
     }
 }
 
+fn char_map(c: char) -> char {
+    match c {
+        '\t' => ' ',
+        _ => c,
+    }
+}
+
 #[derive(Clone, Default, Debug)]
 pub struct Line {
     content: String,
-    active_byte: usize,
 }
 
 impl From<String> for Line {
     fn from(content: String) -> Self {
-        Self {
-            content,
-            active_byte: 0,
-        }
+        Self { content }
     }
 }
 
+#[derive(Copy, Clone, Default, Debug)]
+pub struct Index {
+    display: usize,
+    byte: usize,
+}
+
 #[derive(Copy, Clone, Debug)]
-struct CharIndex {
-    disp_index: usize,
-    char_index: usize,
-    byte_index: usize,
+pub enum RawIndex {
+    Valid(Index),
+    Invalid { display: usize },
+}
+
+impl RawIndex {
+    pub fn index_front() -> Self {
+        Self::Valid(Default::default())
+    }
+
+    fn display(&self) -> usize {
+        let &(Self::Valid(Index { display, .. }) | Self::Invalid { display }) = self;
+        display
+    }
+
+    pub fn at_front(self) -> bool {
+        self.display() == 0
+    }
+
+    pub fn invalidate(&mut self) {
+        *self = match self {
+            &mut Self::Valid(Index { display, .. }) => Self::Invalid { display },
+            _ => *self,
+        };
+    }
+}
+
+impl From<Index> for RawIndex {
+    fn from(valid: Index) -> Self {
+        Self::Valid(valid)
+    }
 }
 
 impl Line {
-    fn indices(&self) -> impl Iterator<Item = CharIndex> + '_ {
-        self.content.char_indices().enumerate().scan(
-            0,
-            |disp_index_state, (char_index, (byte_index, c))| {
-                let disp_index = *disp_index_state;
-                *disp_index_state += char_width(c);
+    fn indices_from(&self, from: Index) -> Res<impl Iterator<Item = Index> + '_> {
+        Ok(self
+            .content
+            .get(from.byte..)
+            .context("byte is on char boundary")?
+            .chars()
+            .scan(from, |state, c| {
+                let index = *state;
+                state.display += char_width(c);
+                state.byte += c.len_utf8();
+                Some(index)
+            }))
+    }
 
-                Some(CharIndex {
-                    disp_index,
-                    char_index,
-                    byte_index,
-                })
-            },
-        )
+    fn rindices_from(&self, from: Index) -> Res<impl Iterator<Item = Index> + '_> {
+        Ok(self
+            .content
+            .get(..from.byte)
+            .context("byte is on char boundary")?
+            .chars()
+            .rev()
+            .scan(from, |state, c| {
+                let index = *state;
+                state.display -= char_width(c);
+                state.byte -= c.len_utf8();
+                Some(index)
+            }))
+    }
+
+    fn indices(&self) -> impl Iterator<Item = Index> + '_ {
+        self.indices_from(Default::default()).expect("0 index")
     }
 
     fn chars(&self) -> impl Iterator<Item = char> + '_ {
         self.content
             .chars()
-            .flat_map(|c| {
-                iter::repeat(match c {
-                    '\t' => ' ',
-                    _ => c,
-                })
-                .take(char_width(c))
-            })
+            .flat_map(|c| iter::repeat(char_map(c)).take(char_width(c)))
             .chain(iter::repeat(' '))
     }
 
-    pub fn active(&self) -> usize {
-        self.indices()
-            .find_map(|index| (index.byte_index == self.active_byte).then(|| index.disp_index))
-            .unwrap_or(self.content.len())
-    }
-
-    pub fn set_active(&mut self, display_index: usize) {
-        let byte_index = if let Some(index) = self
-            .indices()
-            .find(|index| index.disp_index >= display_index)
-        {
-            index.byte_index
-        } else {
-            self.content.len()
-        };
-
-        self.active_byte = byte_index;
-    }
-
-    pub fn set_active_front(&mut self) {
-        self.active_byte = 0;
-    }
-
-    pub fn set_active_back(&mut self) {
-        self.active_byte = self.content.len();
-    }
-
-    pub fn set_active_next(&mut self) {
-        if let Some(forward) = self.content[self.active_byte..]
-            .char_indices()
-            .skip(1)
+    fn get(&self, index: Index) -> Res<char> {
+        self.content
+            .get(index.byte..)
+            .context("byte is on char boundary")?
+            .chars()
             .next()
-            .map(|(i, _)| i)
-        {
-            self.active_byte += forward;
+            .context("byte is on char boundary")
+    }
+
+    pub fn correct_index(&self, index: RawIndex) -> Index {
+        if let RawIndex::Valid(valid) = index {
+            valid
         } else {
-            self.set_active_back();
+            let (Ok(valid) | Err(valid)) =
+                self.indices().try_fold(Default::default(), |_, valid| {
+                    if valid.display >= index.display() {
+                        Err(valid)
+                    } else {
+                        Ok(Index {
+                            display: valid.display + 1,
+                            ..valid
+                        })
+                    }
+                });
+
+            valid
         }
     }
 
-    pub fn set_active_prev(&mut self) {
-        self.active_byte = self.content[..self.active_byte]
-            .char_indices()
-            .rev()
-            .next()
-            .map(|(i, _)| i)
-            .unwrap_or(0);
+    pub fn index_forward(&self, index: Index) -> Res<Option<Index>> {
+        Ok(self.indices_from(index)?.next())
     }
 
-    pub fn split(&mut self) -> Self {
-        Self {
-            content: self.content.split_off(self.active_byte),
-            active_byte: 0,
-        }
+    pub fn index_backward(&self, index: Index) -> Res<Option<Index>> {
+        Ok(self.rindices_from(index)?.next())
+    }
+
+    pub fn index_forward_word(&self, index: Index) -> Res<Option<Index>> {
+        Ok(if self.at_back(index) {
+            None
+        } else {
+            let find_nonalphanum = |index| match self.get(index) {
+                Ok(c) => (!c.is_alphanumeric()).then(|| Ok(index)),
+                Err(error) => Some(Err(error)),
+            };
+
+            Some(
+                if let Some(result) = self.indices_from(index)?.find_map(find_nonalphanum) {
+                    result?
+                } else {
+                    self.index_back(index.into())?
+                },
+            )
+        })
+    }
+
+    pub fn index_backward_word(&self, index: Index) -> Res<Option<Index>> {
+        Ok(if RawIndex::from(index).at_front() {
+            None
+        } else {
+            let find_nonalphanum = |index| match self.get(index) {
+                Ok(c) => (!c.is_alphanumeric()).then(|| Ok(index)),
+                Err(error) => Some(Err(error)),
+            };
+
+            Some(
+                if let Some(result) = self.rindices_from(index)?.find_map(find_nonalphanum) {
+                    result?
+                } else {
+                    Default::default()
+                },
+            )
+        })
+    }
+
+    pub fn index_back(&self, index: RawIndex) -> Res<Index> {
+        Ok(match index {
+            RawIndex::Valid(index) => self.indices_from(index)?.last().unwrap_or(index),
+            _ => self.indices().last().unwrap_or_default(),
+        })
+    }
+
+    pub fn split_at(&mut self, index: Index) -> Res<Self> {
+        Ok(Self {
+            content: self.content.split_off(index.byte),
+        })
     }
 
     pub fn append(&mut self, other: Self) {
         self.content += &other.content;
     }
 
-    pub fn at_front(&self) -> bool {
-        self.active_byte == 0
+    pub fn at_back(&self, index: Index) -> bool {
+        index.byte == self.content.len()
     }
 
-    pub fn at_back(&self) -> bool {
-        self.active_byte == self.content.len()
+    pub fn insert(&mut self, index: Index, c: char) {
+        self.content.insert(index.byte, c);
     }
 
-    pub fn insert(&mut self, c: char) {
-        self.content.insert(self.active_byte, c);
+    pub fn remove(&mut self, index: Index) {
+        self.content.remove(index.byte);
     }
 
-    pub fn remove(&mut self) {
-        self.content.remove(self.active_byte);
-    }
+    /*
+                pressed!(Key::Home) => Ok(Default::default()),
 
-    pub fn update(&mut self, message: &Message) -> Res<()> {
-        let nonalphanum = |(i, c): (_, char)| (!c.is_alphanumeric()).then(|| i);
+                pressed!(Key::End) => Ok(self.last_index(index.into())?.unwrap_or(index)),
 
-        match message {
-            pressed!(Key::Left, ctrl) => {
-                self.active_byte = self.content[..self.active_byte]
-                    .char_indices()
-                    .rev()
-                    .find_map(nonalphanum)
-                    .unwrap_or(0)
-                    .saturating_sub(1);
-            }
+                &pressed!(Key::Char(c)) => {
+                    self.insert(index, c);
 
-            pressed!(Key::Left) => {
-                self.set_active_prev();
-            }
-
-            pressed!(Key::Right, ctrl) => {
-                if let Some(forward) = self.content[self.active_byte..]
-                    .char_indices()
-                    .find_map(nonalphanum)
-                {
-                    self.active_byte += forward + 1;
-                } else {
-                    self.set_active_back();
+                    self.next_index(index)?.context("inserted new char")
                 }
-            }
 
-            pressed!(Key::Right) => {
-                self.set_active_next();
-            }
+                pressed!(Key::Backspace, ctrl) => {
+                    let start =
+                        if let Some(result) = self.rindices_from(index)?.find_map(find_nonalphanum) {
+                            result?
+                        } else {
+                            Default::default()
+                        };
 
-            pressed!(Key::Home) => {
-                self.set_active_front();
-            }
+                    self.content.drain(start.byte..index.byte);
 
-            pressed!(Key::End) => {
-                self.set_active_back();
-            }
-
-            &pressed!(Key::Char(c)) => {
-                self.insert(c);
-                self.set_active_next();
-            }
-
-            pressed!(Key::Backspace, ctrl) => {
-                let prev_active_byte = self.active_byte;
-
-                self.active_byte = self.content[..self.active_byte]
-                    .char_indices()
-                    .rev()
-                    .find_map(nonalphanum)
-                    .unwrap_or(0)
-                    .saturating_sub(1);
-
-                self.content.drain(self.active_byte..prev_active_byte);
-            }
-
-            pressed!(Key::Backspace) => {
-                if !self.at_front() {
-                    self.set_active_prev();
-                    self.remove();
+                    Ok(start)
                 }
-            }
 
-            pressed!(Key::Delete, ctrl) => {
-                if let Some(forward) = self.content[self.active_byte..]
-                    .char_indices()
-                    .find_map(nonalphanum)
-                {
-                    let range = self.active_byte..self.active_byte + forward + 1;
-                    self.content.drain(range);
-                } else {
-                    self.content.drain(self.active_byte..);
-                };
-            }
+                pressed!(Key::Backspace) => {
+                    if let Some(prev) = self.prev_index(index)? {
+                        self.content.remove(prev.byte);
 
-            pressed!(Key::Delete) => {
-                if !self.at_back() {
-                    self.remove();
+                        Ok(prev)
+                    } else {
+                        Ok(index)
+                    }
                 }
-            }
 
-            _ => {}
+                pressed!(Key::Delete, ctrl) => {
+                    let end = if let Some(result) = self.indices_from(index)?.find_map(find_nonalphanum)
+                    {
+                        result?
+                    } else {
+                        self.last_index(index.into())?.unwrap_or(index)
+                    };
+
+                    self.content.drain(index.byte..end.byte);
+
+                    Ok(index)
+                }
+
+                pressed!(Key::Delete) => {
+                    self.content.remove(index.byte);
+
+                    Ok(index)
+                }
+
+                _ => Ok(index),
+            }
         }
-
-        Ok(())
-    }
-
-    pub fn view(&self, out: &mut Out, width: u16, active: bool) -> Res<()> {
+    */
+    pub fn view(&self, out: &mut Out, width: u16, active: Option<Index>) -> Res<()> {
         for c in self.chars().take(width.into()) {
             out.queue(Print(c))?;
         }
 
-        if active {
-            out.queue(MoveToColumn(self.active().try_into()?))?
+        if let Some(index) = active {
+            out.queue(MoveToColumn(index.display.try_into()?))?
                 .queue(Show)?
                 .queue(EnableBlinking)?;
         }
