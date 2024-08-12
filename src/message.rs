@@ -1,4 +1,6 @@
-use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crossterm::event::{
+    Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEvent, MouseEventKind,
+};
 use std::path::PathBuf;
 
 #[derive(Clone, Debug)]
@@ -12,6 +14,8 @@ pub enum Message {
 pub enum Input {
     FocusGained,
     FocusLost,
+    ScrollUp,
+    ScrollDown,
     KeyCombo(KeyCombo),
 }
 
@@ -83,7 +87,16 @@ impl TryFrom<Event> for Input {
                     return Err(());
                 }
             }
-            Event::Mouse(_) => return Err(()),
+            Event::Mouse(MouseEvent {
+                kind,
+                column,
+                row,
+                modifiers,
+            }) => match kind {
+                MouseEventKind::ScrollDown => Self::ScrollDown,
+                MouseEventKind::ScrollUp => Self::ScrollUp,
+                _ => return Err(()),
+            },
             Event::Paste(_) => return Err(()),
             Event::Resize(_, _) => return Err(()),
         })

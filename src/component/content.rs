@@ -5,10 +5,7 @@ use crate::{
     pressed,
     utils::{
         out::{self, Bounds, Out},
-        shared::{
-            debug,
-            status::{self, Pos},
-        },
+        shared::status::{self, Pos},
     },
 };
 use anyhow::Context;
@@ -27,7 +24,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
-const SCROLL_DIST: usize = 3;
+const SCROLL_GRACE: usize = 3;
+const SCROLL_DIST: usize = 5;
 
 #[allow(private_interfaces)]
 #[derive(Clone, Debug)]
@@ -382,7 +380,7 @@ impl Buffer {
     }
 
     fn cursor_down(&mut self) -> Res<bool> {
-        if self.active < self.lines.len() - SCROLL_DIST {
+        if self.active < self.lines.len() - SCROLL_GRACE {
             self.active += 1;
             self.index.invalidate();
 
@@ -402,7 +400,7 @@ impl Buffer {
     }
 
     fn cursor_up(&mut self) -> Res<bool> {
-        if self.active > SCROLL_DIST {
+        if self.active > SCROLL_GRACE {
             self.active -= 1;
             self.index.invalidate();
 
@@ -643,6 +641,22 @@ impl Buffer {
                     self.current_line_mut()?.remove(corrected);
                 }
                 self.index = corrected.into();
+
+                Ok(None)
+            }
+
+            Message::Input(Input::ScrollDown) => {
+                for _ in 0..SCROLL_DIST {
+                    self.scroll_down()?;
+                }
+
+                Ok(None)
+            }
+
+            Message::Input(Input::ScrollUp) => {
+                for _ in 0..SCROLL_DIST {
+                    self.scroll_up()?;
+                }
 
                 Ok(None)
             }
