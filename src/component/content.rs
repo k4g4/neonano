@@ -224,7 +224,7 @@ impl FilePicker {
         queue!(out, Hide)?;
         out::anchor(out, self.bounds)?;
 
-        let width = self.bounds.width().into();
+        let width = usize::from(self.bounds.width()) - 1;
         let mut out = out;
         for (i, dir) in self.entries.iter().enumerate() {
             let queue_line = |out: &'out mut Out| -> Res<&'out mut Out> {
@@ -620,6 +620,30 @@ impl Buffer {
                 Ok(None)
             }
 
+            pressed!(Key::Backspace, ctrl) => {
+                if self.index.at_front() {
+                    if !self.at_top() {
+                        let line = self.lines.remove(self.active).context("active is valid")?;
+
+                        self.fix_lines()?;
+                        self.cursor_up()?;
+                        self.index = self.current_line()?.index_back(self.index)?.into();
+                        self.current_line_mut()?.append(line);
+                    }
+                } else {
+                    let corrected = self.current_line()?.correct_index(self.index);
+                    let index = self
+                        .current_line()?
+                        .index_backward_word(corrected)?
+                        .unwrap_or_default();
+
+                    self.current_line_mut()?.remove_range(index, corrected);
+                    self.index = index.into();
+                }
+
+                Ok(None)
+            }
+
             pressed!(Key::Backspace) => {
                 if self.index.at_front() {
                     if !self.at_top() {
@@ -640,6 +664,30 @@ impl Buffer {
                     self.current_line_mut()?.remove(index);
                     self.index = index.into();
                 }
+
+                Ok(None)
+            }
+
+            pressed!(Key::Delete, ctrl) => {
+                let corrected = self.current_line()?.correct_index(self.index);
+
+                if self.current_line()?.at_back(corrected) {
+                    if !self.at_bottom() {
+                        let line = self.lines.remove(self.active).context("active is valid")?;
+
+                        self.fix_lines()?;
+                        self.current_line_mut()?.prepend(line);
+                    }
+                } else {
+                    let index =
+                        if let Some(index) = self.current_line()?.index_forward_word(corrected)? {
+                            index
+                        } else {
+                            self.current_line()?.index_back(corrected.into())?
+                        };
+                    self.current_line_mut()?.remove_range(corrected, index);
+                }
+                self.index = corrected.into();
 
                 Ok(None)
             }

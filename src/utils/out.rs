@@ -1,6 +1,6 @@
 use crate::core::Res;
 use crossterm::{
-    cursor::{MoveDown, MoveLeft, MoveTo, RestorePosition, SavePosition},
+    cursor::{MoveDown, MoveLeft, MoveTo, MoveToColumn, RestorePosition, SavePosition},
     queue,
     style::{Color, Print, ResetColor, SetBackgroundColor, SetForegroundColor},
 };
@@ -109,7 +109,7 @@ where
     Ok(out)
 }
 
-pub fn vbar(out: &mut Out, down: u16, lefts: u16, rights: u16) -> Res<&mut Out> {
+pub fn vbar(out: &mut Out, x: u16, down: u16, lefts: u16, rights: u16) -> Res<&mut Out> {
     let multiples = |down, num| {
         let interval = down / num;
 
@@ -126,7 +126,7 @@ pub fn vbar(out: &mut Out, down: u16, lefts: u16, rights: u16) -> Res<&mut Out> 
     let right_multiples = multiples(down, rights);
     let chars = left_multiples
         .zip(right_multiples)
-        .map(|(left, right)| match (left, right) {
+        .map(|left_right| match left_right {
             (true, true) => '┼',
             (true, false) => '┤',
             (false, true) => '├',
@@ -135,7 +135,39 @@ pub fn vbar(out: &mut Out, down: u16, lefts: u16, rights: u16) -> Res<&mut Out> 
         .take(down.into());
 
     for c in chars {
-        queue!(out, Print(c), MoveDown(1), MoveLeft(1))?;
+        queue!(out, Print(c), MoveDown(1), MoveToColumn(x))?;
+    }
+
+    Ok(out)
+}
+
+pub fn hbar(out: &mut Out, right: u16, ups: u16, downs: u16) -> Res<&mut Out> {
+    let multiples = |right, num| {
+        let interval = right / num;
+
+        (1..num)
+            .flat_map(move |mult| {
+                let from = interval * (mult - 1);
+                let to = (interval * mult) - 1;
+
+                (from..to).map(|_| false).chain(iter::once(true))
+            })
+            .chain(iter::repeat(false))
+    };
+    let up_multiples = multiples(right, ups);
+    let down_multiples = multiples(right, downs);
+    let chars = up_multiples
+        .zip(down_multiples)
+        .map(|up_down| match up_down {
+            (true, true) => '┼',
+            (true, false) => '┴',
+            (false, true) => '┬',
+            (false, false) => '─',
+        })
+        .take(right.into());
+
+    for c in chars {
+        queue!(out, Print(c))?;
     }
 
     Ok(out)

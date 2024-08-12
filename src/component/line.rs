@@ -140,13 +140,13 @@ impl Line {
             .chain(iter::repeat(' '))
     }
 
-    fn get(&self, index: Index) -> Res<char> {
-        self.content
+    fn get(&self, index: Index) -> Res<Option<char>> {
+        Ok(self
+            .content
             .get(index.byte..)
             .context("byte is on char boundary")?
             .chars()
-            .next()
-            .context("byte is on char boundary")
+            .next())
     }
 
     pub fn correct_index(&self, index: RawIndex) -> Index {
@@ -179,12 +179,13 @@ impl Line {
             None
         } else {
             let find_nonalphanum = |index| match self.get(index) {
-                Ok(c) => (!c.is_alphanumeric()).then(|| Ok(index)),
+                Ok(Some(c)) => (!c.is_alphanumeric()).then(|| Ok(index)),
+                Ok(None) => None,
                 Err(error) => Some(Err(error)),
             };
 
             Some(
-                if let Some(result) = self.indices_from(index)?.find_map(find_nonalphanum) {
+                if let Some(result) = self.indices_from(index)?.skip(1).find_map(find_nonalphanum) {
                     result?
                 } else {
                     self.index_back(index.into())?
@@ -198,12 +199,17 @@ impl Line {
             None
         } else {
             let find_nonalphanum = |index| match self.get(index) {
-                Ok(c) => (!c.is_alphanumeric()).then(|| Ok(index)),
+                Ok(Some(c)) => (!c.is_alphanumeric()).then(|| Ok(index)),
+                Ok(None) => None,
                 Err(error) => Some(Err(error)),
             };
 
             Some(
-                if let Some(result) = self.rindices_from(index)?.find_map(find_nonalphanum) {
+                if let Some(result) = self
+                    .rindices_from(index)?
+                    .skip(1)
+                    .find_map(find_nonalphanum)
+                {
                     result?
                 } else {
                     Default::default()
@@ -247,6 +253,10 @@ impl Line {
 
     pub fn remove(&mut self, index: Index) {
         self.content.remove(index.byte);
+    }
+
+    pub fn remove_range(&mut self, from: Index, to: Index) {
+        self.content.drain(from.byte..to.byte);
     }
 
     pub fn view(&self, out: &mut Out, x: u16, width: u16, active: Option<Index>) -> Res<()> {

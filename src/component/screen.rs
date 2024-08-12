@@ -5,7 +5,11 @@ use crate::{
     utils::out::{self, Bounds, Out},
 };
 use anyhow::Context;
-use crossterm::{cursor::MoveTo, queue};
+use crossterm::{
+    cursor::{MoveDown, MoveLeft, MoveRight, MoveTo, MoveUp},
+    queue,
+    style::Print,
+};
 
 #[derive(Clone, Debug)]
 pub struct Screen {
@@ -61,9 +65,24 @@ impl Screen {
             .try_into()?;
 
         out::anchor(out, self.bounds)?;
-        out::vbar(out, self.bounds.height(), 1, left_tiles)?;
+        out::vbar(out, self.bounds.x0, self.bounds.height(), 1, left_tiles)?;
         queue!(out, MoveTo(self.bounds.x1, self.bounds.y0))?;
-        out::vbar(out, self.bounds.height(), right_tiles, 1)?;
+        out::vbar(out, self.bounds.x1, self.bounds.height(), right_tiles, 1)?;
+        out::anchor(out, self.bounds)?;
+        out::hbar(out, self.bounds.width(), 1, columns)?;
+        queue!(out, MoveTo(self.bounds.x0, self.bounds.y1 - 1))?;
+        out::hbar(out, self.bounds.width(), columns, 1)?;
+        out::anchor(out, self.bounds)?;
+        queue!(
+            out,
+            Print('┌'),
+            MoveTo(self.bounds.x0, self.bounds.y1 - 1),
+            Print('└'),
+            MoveTo(self.bounds.x1 - 1, self.bounds.y1 - 1),
+            Print('┘'),
+            MoveTo(self.bounds.x1 - 1, self.bounds.y0),
+            Print('┐'),
+        )?;
 
         let inactive_columns = self
             .columns()
