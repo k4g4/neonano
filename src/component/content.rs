@@ -710,6 +710,22 @@ impl Buffer {
                 Ok(None)
             }
 
+            pressed!(Key::PageDown) => {
+                for _ in 0..self.lines.len() / 2 {
+                    self.scroll_down()?;
+                }
+
+                Ok(None)
+            }
+
+            pressed!(Key::PageUp) => {
+                for _ in 0..self.lines.len() / 2 {
+                    self.scroll_up()?;
+                }
+
+                Ok(None)
+            }
+
             Message::Input(Input::ScrollDown) => {
                 for _ in 0..SCROLL_DIST {
                     self.scroll_down()?;
