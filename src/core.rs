@@ -10,8 +10,8 @@ use crate::{
 use crossterm::{
     cursor::{Hide, MoveTo},
     event::{DisableMouseCapture, EnableMouseCapture},
+    queue,
     terminal::{self, EnterAlternateScreen, LeaveAlternateScreen},
-    QueueableCommand,
 };
 use std::io::{self, Write};
 
@@ -37,11 +37,13 @@ impl Core {
         status::reset_all()?;
 
         let mut out = io::stdout().lock();
-        if let Err(error) = out
-            .queue(EnterAlternateScreen)
-            .and_then(|out| out.queue(EnableMouseCapture))
-            .and_then(|out| out.flush())
-        {
+        let init_result: Res<_> = (|| {
+            queue!(out, EnterAlternateScreen, EnableMouseCapture)?;
+            out.flush()?;
+            Ok(())
+        })();
+
+        if let Err(error) = init_result {
             terminal::disable_raw_mode()?;
             Err(error.into())
         } else {
@@ -82,7 +84,7 @@ impl Core {
             }
 
             if updated {
-                self.out.queue(MoveTo(0, 0))?.queue(Hide)?;
+                queue!(self.out, MoveTo(0, 0), Hide)?;
                 self.frame.view(&mut self.out)?;
                 self.out.flush()?;
             }
@@ -94,11 +96,11 @@ impl Core {
 
 impl Drop for Core {
     fn drop(&mut self) {
-        let _ = self
-            .out
-            .queue(DisableMouseCapture)
-            .and_then(|output| output.queue(LeaveAlternateScreen))
-            .and_then(|output| output.flush());
+        let _ = (|| -> Res<_> {
+            queue!(self.out, DisableMouseCapture, LeaveAlternateScreen)?;
+            self.out.flush()?;
+            Ok(())
+        })();
         terminal::disable_raw_mode().unwrap();
     }
 }

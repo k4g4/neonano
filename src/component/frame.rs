@@ -8,7 +8,7 @@ use crate::{
         shared::status::{self, Pos},
     },
 };
-use crossterm::{cursor::MoveRight, style::Print, QueueableCommand};
+use crossterm::{cursor::MoveRight, queue, style::Print};
 use std::marker::PhantomData;
 
 #[derive(Debug)]
@@ -99,7 +99,7 @@ impl<P: Position> StatusBar<P> {
                     let status = status.get(..bounds.width().into()).unwrap_or(status);
                     let indent = (bounds.width() - u16::try_from(status.len())?) / 2;
 
-                    Ok(out.queue(MoveRight(indent))?.queue(Print(status))?)
+                    Ok(queue!(out, MoveRight(indent), Print(status))?)
                 })??;
             }
 

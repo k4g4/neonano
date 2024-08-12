@@ -1,8 +1,8 @@
 use crate::core::Res;
 use crossterm::{
-    cursor::{MoveDown, MoveLeft, MoveToColumn, MoveToRow, RestorePosition, SavePosition},
+    cursor::{MoveDown, MoveLeft, MoveTo, RestorePosition, SavePosition},
+    queue,
     style::{Color, Print, ResetColor, SetBackgroundColor, SetForegroundColor},
-    QueueableCommand,
 };
 use std::iter;
 
@@ -73,32 +73,40 @@ impl Bounds {
 }
 
 pub fn anchor(out: &mut Out, Bounds { x0, y0, .. }: Bounds) -> Res<&mut Out> {
-    Ok(out.queue(MoveToRow(y0))?.queue(MoveToColumn(x0))?)
+    queue!(out, MoveTo(x0, y0))?;
+
+    Ok(out)
 }
 
 pub fn clear(out: &mut Out, bounds: Bounds) -> Res<&mut Out> {
     anchor(out, bounds)?;
-    out.queue(SavePosition)?;
+    queue!(out, SavePosition)?;
 
     for _ in bounds.y0..bounds.y1 {
         for _ in bounds.x0..bounds.x1 {
-            out.queue(Print(' '))?;
+            queue!(out, Print(' '))?;
         }
-        out.queue(MoveDown(1))?.queue(MoveLeft(bounds.width()))?;
+        queue!(out, MoveDown(1), MoveLeft(bounds.width()))?;
     }
 
-    Ok(out.queue(RestorePosition)?)
+    queue!(out, RestorePosition)?;
+
+    Ok(out)
 }
 
 pub fn with_highlighted<'out, F>(out: &'out mut Out, f: F) -> Res<&'out mut Out>
 where
     F: FnOnce(&'out mut Out) -> Res<&'out mut Out>,
 {
-    f(out
-        .queue(SetBackgroundColor(Color::White))?
-        .queue(SetForegroundColor(Color::Black))?)?
-    .queue(ResetColor)
-    .map_err(Into::into)
+    queue!(
+        out,
+        SetBackgroundColor(Color::White),
+        SetForegroundColor(Color::Black),
+    )?;
+    let out = f(out)?;
+    queue!(out, ResetColor)?;
+
+    Ok(out)
 }
 
 pub fn vbar(out: &mut Out, down: u16, lefts: u16, rights: u16) -> Res<&mut Out> {
@@ -127,9 +135,7 @@ pub fn vbar(out: &mut Out, down: u16, lefts: u16, rights: u16) -> Res<&mut Out> 
         .take(down.into());
     super::shared::debug!("down: {down} lefts {lefts}");
     for c in chars {
-        out.queue(Print(c))?
-            .queue(MoveDown(1))?
-            .queue(MoveLeft(1))?;
+        queue!(out, Print(c), MoveDown(1), MoveLeft(1))?;
     }
 
     Ok(out)

@@ -2,8 +2,8 @@ use crate::{core::Res, utils::out::Out};
 use anyhow::Context;
 use crossterm::{
     cursor::{EnableBlinking, MoveToColumn, Show},
+    queue,
     style::Print,
-    QueueableCommand,
 };
 use std::iter;
 
@@ -232,13 +232,12 @@ impl Line {
 
     pub fn view(&self, out: &mut Out, width: u16, active: Option<Index>) -> Res<()> {
         for c in self.chars().take(width.into()) {
-            out.queue(Print(c))?;
+            queue!(out, Print(c))?;
         }
 
         if let Some(index) = active {
-            out.queue(MoveToColumn(index.display.try_into()?))?
-                .queue(Show)?
-                .queue(EnableBlinking)?;
+            let column = index.display.try_into()?;
+            queue!(out, MoveToColumn(column), Show, EnableBlinking)?;
         }
 
         Ok(())

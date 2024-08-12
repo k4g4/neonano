@@ -5,7 +5,7 @@ use crate::{
     utils::out::{self, Bounds, Out},
 };
 use anyhow::Context;
-use crossterm::{cursor::MoveTo, QueueableCommand};
+use crossterm::{cursor::MoveTo, queue};
 
 #[derive(Clone, Debug)]
 pub struct Screen {
@@ -62,7 +62,7 @@ impl Screen {
 
         out::anchor(out, self.bounds)?;
         out::vbar(out, self.bounds.height(), 1, left_tiles)?;
-        out.queue(MoveTo(self.bounds.x1, self.bounds.y0))?;
+        queue!(out, MoveTo(self.bounds.x1, self.bounds.y0))?;
         out::vbar(out, self.bounds.height(), right_tiles, 1)?;
 
         let inactive_columns = self

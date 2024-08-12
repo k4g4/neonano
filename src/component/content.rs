@@ -11,8 +11,8 @@ use crate::{
 use anyhow::Context;
 use crossterm::{
     cursor::{Hide, MoveDown, MoveToColumn, MoveToRow},
+    queue,
     style::Print,
-    QueueableCommand,
 };
 use std::{
     cmp::Ordering,
@@ -215,7 +215,8 @@ impl FilePicker {
     }
 
     fn view<'out>(&self, out: &'out mut Out, active: bool) -> Res<()> {
-        out::anchor(out.queue(Hide)?, self.bounds)?;
+        queue!(out, Hide)?;
+        out::anchor(out, self.bounds)?;
 
         let width = self.bounds.width().into();
         let mut out = out;
@@ -227,10 +228,14 @@ impl FilePicker {
                     dir.path.display()
                 );
 
-                Ok(out
-                    .queue(Print(&line[..width]))?
-                    .queue(MoveDown(1))?
-                    .queue(MoveToColumn(self.bounds.x0))?)
+                queue!(
+                    out,
+                    Print(&line[..width]),
+                    MoveDown(1),
+                    MoveToColumn(self.bounds.x0),
+                )?;
+
+                Ok(out)
             };
 
             if active && i == self.selected {
@@ -658,8 +663,8 @@ impl Buffer {
             if i != self.active {
                 line.view(out, self.bounds.width(), None)?;
             }
-            out.queue(MoveDown(1))?
-                .queue(MoveToColumn(self.bounds.x0))?;
+
+            queue!(out, MoveDown(1), MoveToColumn(self.bounds.x0))?;
         }
 
         if self.lines.len() < self.bounds.height().into() {
@@ -672,7 +677,8 @@ impl Buffer {
             )?;
         }
 
-        out.queue(MoveToRow(self.bounds.y0 + u16::try_from(self.active)?))?;
+        let row = self.bounds.y0 + u16::try_from(self.active)?;
+        queue!(out, MoveToRow(row))?;
         self.current_line()?.view(
             out,
             self.bounds.width(),
