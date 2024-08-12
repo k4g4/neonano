@@ -44,18 +44,20 @@ impl Content {
 
     pub fn update(&mut self, message: &Message) -> Res<Option<Message>> {
         match message {
-            pressed!(Key::Esc) => {
-                if let Content::Buffer(buffer) = self {
+            pressed!(Key::Esc) => match self {
+                Self::Buffer(buffer) => {
                     let filepicker = FilePicker::new(buffer.bounds)?;
 
                     status::reset_all()?;
                     filepicker.update_status()?;
 
                     *self = Self::FilePicker(filepicker);
+
+                    Ok(None)
                 }
 
-                Ok(None)
-            }
+                Self::FilePicker(filepicker) => filepicker.update(message),
+            },
 
             Message::Open(path) => {
                 if let Content::FilePicker(filepicker) = self {
@@ -210,6 +212,9 @@ impl FilePicker {
                     .context("history never empty")?
                     .display()
             )?)
+        })??;
+        status::set(Pos::BottomRight, |status| -> Res<_> {
+            Ok(write!(status, "history: {}", self.history.len())?)
         })??;
 
         Ok(())
@@ -456,6 +461,19 @@ impl Buffer {
         Ok(())
     }
 
+    fn type_char(&mut self, c: char) -> Res<()> {
+        let corrected = self.current_line()?.correct_index(self.index);
+
+        self.current_line_mut()?.insert(corrected, c);
+        self.index = self
+            .current_line()?
+            .index_forward(corrected)?
+            .unwrap_or(corrected)
+            .into();
+
+        Ok(())
+    }
+
     fn update(&mut self, message: &Message) -> Res<Option<Message>> {
         match message {
             pressed!(Key::Up) => {
@@ -561,14 +579,13 @@ impl Buffer {
             }
 
             &pressed!(Key::Char(c)) => {
-                let corrected = self.current_line()?.correct_index(self.index);
+                self.type_char(c)?;
 
-                self.current_line_mut()?.insert(corrected, c);
-                self.index = self
-                    .current_line()?
-                    .index_forward(corrected)?
-                    .unwrap_or(corrected)
-                    .into();
+                Ok(None)
+            }
+
+            pressed!(Key::Tab) => {
+                self.type_char('\t')?;
 
                 Ok(None)
             }

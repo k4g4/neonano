@@ -65,7 +65,7 @@ macro_rules! debug {
     () => {
         crate::utils::shared::status::set(crate::utils::shared::status::Pos::TopRight, |status| {
             use std::fmt::Write;
-            write!(&mut shared.debug, "line: {}", line!())?;
+            write!(status, "line: {}", line!())?;
             crate::core::Res::Ok(())
         })??
     };

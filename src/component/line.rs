@@ -5,7 +5,7 @@ use crossterm::{
     queue,
     style::Print,
 };
-use std::iter;
+use std::iter::{self, Once, Repeat, Take};
 
 const TAB_SIZE: usize = 4;
 
@@ -16,10 +16,29 @@ fn char_width(c: char) -> usize {
     }
 }
 
-fn char_map(c: char) -> char {
-    match c {
-        '\t' => ' ',
-        _ => c,
+#[derive(Debug)]
+enum CharIter {
+    Tab(Take<Repeat<char>>),
+    SingleChar(Once<char>),
+}
+
+impl CharIter {
+    fn new(c: char) -> Self {
+        match c {
+            '\t' => Self::Tab(iter::repeat(' ').take(TAB_SIZE)),
+            _ => Self::SingleChar(iter::once(c)),
+        }
+    }
+}
+
+impl Iterator for CharIter {
+    type Item = char;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            CharIter::Tab(iter) => iter.next(),
+            CharIter::SingleChar(iter) => iter.next(),
+        }
     }
 }
 
@@ -117,7 +136,7 @@ impl Line {
     fn chars(&self) -> impl Iterator<Item = char> + '_ {
         self.content
             .chars()
-            .flat_map(|c| iter::repeat(char_map(c)).take(char_width(c)))
+            .flat_map(CharIter::new)
             .chain(iter::repeat(' '))
     }
 
