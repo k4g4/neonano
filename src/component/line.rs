@@ -259,13 +259,15 @@ impl Line {
         self.content.drain(from.byte..to.byte);
     }
 
-    pub fn view(&self, out: &mut Out, x: u16, width: u16, active: Option<Index>) -> Res<()> {
-        for c in self.chars().take(usize::from(width) - 1) {
+    pub fn view(&self, out: &mut Out, x0: u16, x1: u16, active: Option<Index>) -> Res<()> {
+        let width = usize::from(x1 - x0 - 1);
+
+        for c in self.chars().take(width) {
             queue!(out, Print(c))?;
         }
 
         if let Some(index) = active {
-            let column = x + u16::try_from(index.display)?.clamp(0, width - 1);
+            let column = x0 + u16::try_from(index.display.clamp(0, width))?;
             queue!(out, MoveToColumn(column), Show, EnableBlinking)?;
         }
 

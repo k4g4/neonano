@@ -12,7 +12,7 @@ use anyhow::Context;
 use crossterm::{
     cursor::{Hide, MoveDown, MoveToColumn, MoveToRow},
     queue,
-    style::Print,
+    style::{self, Color, Print, PrintStyledContent, Stylize},
 };
 use std::{
     cmp::Ordering,
@@ -26,6 +26,9 @@ use std::{
 
 const SCROLL_GRACE: usize = 3;
 const SCROLL_DIST: usize = 5;
+
+const DIR_ICON: char = '📂';
+const FILE_ICON: char = '📄';
 
 #[allow(private_interfaces)]
 #[derive(Clone, Debug)]
@@ -220,35 +223,41 @@ impl FilePicker {
         Ok(())
     }
 
-    fn view<'out>(&self, out: &'out mut Out, active: bool) -> Res<()> {
+    fn view(&self, out: &mut Out, active: bool) -> Res<()> {
         queue!(out, Hide)?;
         out::anchor(out, self.bounds)?;
 
-        let width = usize::from(self.bounds.width()) - 1;
-        let mut out = out;
         for (i, dir) in self.entries.iter().enumerate() {
-            let queue_line = |out: &'out mut Out| -> Res<&'out mut Out> {
-                let line = format!(
-                    "{} {:<width$}",
-                    if dir.file_type.is_dir() { '*' } else { '>' },
-                    dir.path.display()
-                );
+            let highlight = active && i == self.selected;
 
-                queue!(
-                    out,
-                    Print(&line[..width]),
-                    MoveDown(1),
-                    MoveToColumn(self.bounds.x0),
-                )?;
-
-                Ok(out)
-            };
-
-            if active && i == self.selected {
-                out = out::with_highlighted(out, queue_line)?;
-            } else {
-                out = queue_line(out)?;
-            }
+            queue!(
+                out,
+                Print(format_args!("{:<1$}", ' ', self.bounds.width().into())),
+                MoveToColumn(self.bounds.x0),
+                PrintStyledContent(
+                    style::style(format_args!(
+                        "{} {}",
+                        if dir.file_type.is_dir() {
+                            DIR_ICON
+                        } else {
+                            FILE_ICON
+                        },
+                        dir.path.display()
+                    ))
+                    .with(if highlight {
+                        Color::Black
+                    } else {
+                        Color::White
+                    })
+                    .on(if highlight {
+                        Color::White
+                    } else {
+                        Color::Reset
+                    })
+                ),
+                MoveDown(1),
+                MoveToColumn(self.bounds.x0),
+            )?;
         }
 
         if self.entries.len() < self.bounds.height().into() {
@@ -272,6 +281,8 @@ struct Buffer {
     below: String,
     active: usize,
     index: RawIndex,
+    offset: usize,
+    line_num_width: u16,
     bounds: Bounds,
     recycle: Vec<Line>,
 }
@@ -281,6 +292,7 @@ impl Buffer {
         let height = bounds.height().into();
         let file = BufReader::new(File::open(path)?);
         let mut lines = file.lines().collect::<Result<Vec<_>, _>>()?;
+        let line_num_width = 3.max(format!("{}", lines.len()).len().try_into()?);
         let below = (height < lines.len())
             .then(|| {
                 lines
@@ -298,6 +310,8 @@ impl Buffer {
             below,
             active: 0,
             index: RawIndex::index_front(),
+            offset: 0,
+            line_num_width,
             bounds,
             recycle: vec![],
         })
@@ -366,6 +380,17 @@ impl Buffer {
             self.lines.push_back(line_from_below);
             let line_to_above = self.lines.pop_front().context("at least one line")?;
             self.insert_above(line_to_above);
+            self.offset += 1;
+
+            let new_line_num_width = match self.offset {
+                1_000 => 4,
+                10_000 => 5,
+                100_000 => 6,
+                1_000_000 => 7,
+                10_000_000 => 8,
+                _ => 0,
+            };
+            self.line_num_width = self.line_num_width.max(new_line_num_width);
 
             Ok(true)
         } else {
@@ -377,6 +402,7 @@ impl Buffer {
         if let Some(line_from_above) = self.take_from_above()? {
             self.lines.push_front(line_from_above);
             self.fix_lines()?;
+            self.offset -= 1;
 
             Ok(true)
         } else {
@@ -612,10 +638,12 @@ impl Buffer {
                 self.index = RawIndex::index_front();
                 if self.cursor_down()? {
                     self.lines.insert(self.active, new_line);
+                    self.cursor_up()?;
                 } else {
                     self.lines.push_back(new_line);
                 }
                 self.fix_lines()?;
+                self.cursor_down()?;
 
                 Ok(None)
             }
@@ -747,8 +775,13 @@ impl Buffer {
     }
 
     fn update_status(&self) -> Res<()> {
-        status::set(Pos::BottomRight, |status| {
+        status::set(Pos::BottomRight, |status| -> Res<_> {
             write!(status, "recycle: {}", self.recycle.len())?;
+
+            Ok(())
+        })??;
+        status::set(Pos::BottomLeft, |status| {
+            write!(status, "line num width: {}", self.line_num_width)?;
 
             Ok(())
         })?
@@ -757,9 +790,23 @@ impl Buffer {
     fn view(&self, out: &mut Out, active: bool) -> Res<()> {
         out::anchor(out, self.bounds)?;
 
+        let num_width = usize::from(self.line_num_width);
+
         for (i, line) in self.lines.iter().enumerate() {
             if i != self.active {
-                line.view(out, self.bounds.x0, self.bounds.width(), None)?;
+                queue!(
+                    out,
+                    PrintStyledContent(
+                        style::style(format_args!("{:num_width$} ", self.offset + i))
+                            .with(style::Color::DarkGrey)
+                    ),
+                )?;
+                line.view(
+                    out,
+                    self.bounds.x0 + self.line_num_width + 1,
+                    self.bounds.x1,
+                    None,
+                )?;
             }
 
             queue!(out, MoveDown(1), MoveToColumn(self.bounds.x0))?;
@@ -776,11 +823,15 @@ impl Buffer {
         }
 
         let row = self.bounds.y0 + u16::try_from(self.active)?;
-        queue!(out, MoveToRow(row))?;
+        queue!(
+            out,
+            MoveToRow(row),
+            Print(format_args!("{:num_width$} ", self.offset + self.active)),
+        )?;
         self.current_line()?.view(
             out,
-            self.bounds.x0,
-            self.bounds.width(),
+            self.bounds.x0 + self.line_num_width + 1,
+            self.bounds.x1,
             if active {
                 Some(self.current_line()?.correct_index(self.index))
             } else {

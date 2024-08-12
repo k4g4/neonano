@@ -16,6 +16,8 @@ thread_local! {
 pub mod status {
     use std::fmt::Write;
 
+    use crossterm::style::Attribute;
+
     use super::*;
 
     const TITLE: &str = "neonano";
@@ -56,7 +58,9 @@ pub mod status {
             shared.statuses.iter_mut().for_each(String::clear);
         });
 
-        Ok(status::set(Pos::Top, |status| status.write_str(TITLE))??)
+        Ok(status::set(Pos::Top, |status| {
+            write!(status, "{}{}", Attribute::Italic, TITLE)
+        })??)
     }
 }
 
