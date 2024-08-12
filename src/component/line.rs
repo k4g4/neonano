@@ -230,13 +230,13 @@ impl Line {
         self.content.remove(index.byte);
     }
 
-    pub fn view(&self, out: &mut Out, width: u16, active: Option<Index>) -> Res<()> {
-        for c in self.chars().take(width.into()) {
+    pub fn view(&self, out: &mut Out, x: u16, width: u16, active: Option<Index>) -> Res<()> {
+        for c in self.chars().take(usize::from(width) - 1) {
             queue!(out, Print(c))?;
         }
 
         if let Some(index) = active {
-            let column = index.display.try_into()?;
+            let column = x + u16::try_from(index.display)?.clamp(0, width - 1);
             queue!(out, MoveToColumn(column), Show, EnableBlinking)?;
         }
 

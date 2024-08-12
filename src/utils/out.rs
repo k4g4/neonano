@@ -133,7 +133,7 @@ pub fn vbar(out: &mut Out, down: u16, lefts: u16, rights: u16) -> Res<&mut Out> 
             (false, false) => '│',
         })
         .take(down.into());
-    super::shared::debug!("down: {down} lefts {lefts}");
+
     for c in chars {
         queue!(out, Print(c), MoveDown(1), MoveLeft(1))?;
     }

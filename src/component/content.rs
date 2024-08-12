@@ -5,7 +5,10 @@ use crate::{
     pressed,
     utils::{
         out::{self, Bounds, Out},
-        shared::status::{self, Pos},
+        shared::{
+            debug,
+            status::{self, Pos},
+        },
     },
 };
 use anyhow::Context;
@@ -661,7 +664,7 @@ impl Buffer {
 
         for (i, line) in self.lines.iter().enumerate() {
             if i != self.active {
-                line.view(out, self.bounds.width(), None)?;
+                line.view(out, self.bounds.x0, self.bounds.width(), None)?;
             }
 
             queue!(out, MoveDown(1), MoveToColumn(self.bounds.x0))?;
@@ -681,6 +684,7 @@ impl Buffer {
         queue!(out, MoveToRow(row))?;
         self.current_line()?.view(
             out,
+            self.bounds.x0,
             self.bounds.width(),
             if active {
                 Some(self.current_line()?.correct_index(self.index))
