@@ -131,7 +131,7 @@ impl FilePicker {
     }
 
     fn open(&mut self) -> Res<()> {
-        self.entries = fs::read_dir(self.history.last().context("history is not empty")?)?
+        self.entries = fs::read_dir(self.history.last().context("history never empty")?)?
             .map(|res| {
                 res.and_then(|entry| {
                     Ok(FilePickerEntry {
@@ -206,7 +206,7 @@ impl FilePicker {
                 "{}",
                 self.history
                     .last()
-                    .context("history is not empty")?
+                    .context("history never empty")?
                     .display()
             )?)
         })??;

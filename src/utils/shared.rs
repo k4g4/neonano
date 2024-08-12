@@ -7,7 +7,6 @@ const STATUS_LEN: usize = 6;
 #[derive(Default, Debug)]
 pub struct Shared {
     pub statuses: [String; STATUS_LEN],
-    pub debug: String,
 }
 
 thread_local! {
@@ -22,7 +21,7 @@ pub mod status {
     const TITLE: &str = "neonano";
 
     #[repr(usize)]
-    #[derive(Copy, Clone, Debug)]
+    #[derive(PartialEq, Copy, Clone, Debug)]
     pub enum Pos {
         TopLeft,
         Top,
@@ -64,21 +63,20 @@ pub mod status {
 #[allow(unused_macros)]
 macro_rules! debug {
     () => {
-        crate::utils::shared::set(|shared| {
+        crate::utils::shared::status::set(crate::utils::shared::status::Pos::TopRight, |status| {
             use std::fmt::Write;
-            shared.debug.clear();
-            write!(&mut shared.debug, "line: {}", line!());
-        })
+            write!(&mut shared.debug, "line: {}", line!())?;
+            crate::core::Res::Ok(())
+        })??
     };
 
     ($($arg:tt)*) => {
-        crate::utils::shared::set(|shared| {
+        crate::utils::shared::status::set(crate::utils::shared::status::Pos::TopRight, |status| {
             use std::fmt::Write;
-            shared.debug.clear();
-            write!(&mut shared.debug, "line: {} msg: ", line!())?;
-            shared.debug.write_fmt(format_args!($($arg)*))?;
+            write!(status, "line: {} msg: ", line!())?;
+            status.write_fmt(format_args!($($arg)*))?;
             crate::core::Res::Ok(())
-        })?
+        })??
     }
 }
 #[allow(unused_imports)]

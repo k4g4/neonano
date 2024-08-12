@@ -4,6 +4,7 @@ use crossterm::{
     style::{Color, Print, ResetColor, SetBackgroundColor, SetForegroundColor},
     QueueableCommand,
 };
+use std::iter;
 
 pub type Out = std::io::StdoutLock<'static>;
 
@@ -98,4 +99,38 @@ where
         .queue(SetForegroundColor(Color::Black))?)?
     .queue(ResetColor)
     .map_err(Into::into)
+}
+
+pub fn vbar(out: &mut Out, down: u16, lefts: u16, rights: u16) -> Res<&mut Out> {
+    let multiples = |down, num| {
+        let interval = down / num;
+
+        (1..num)
+            .flat_map(move |mult| {
+                let from = interval * (mult - 1);
+                let to = (interval * mult) - 1;
+
+                (from..to).map(|_| false).chain(iter::once(true))
+            })
+            .chain(iter::repeat(false))
+    };
+    let left_multiples = multiples(down, lefts);
+    let right_multiples = multiples(down, rights);
+    let chars = left_multiples
+        .zip(right_multiples)
+        .map(|(left, right)| match (left, right) {
+            (true, true) => '┼',
+            (true, false) => '┤',
+            (false, true) => '├',
+            (false, false) => '│',
+        })
+        .take(down.into());
+    super::shared::debug!("down: {down} lefts {lefts}");
+    for c in chars {
+        out.queue(Print(c))?
+            .queue(MoveDown(1))?
+            .queue(MoveLeft(1))?;
+    }
+
+    Ok(out)
 }

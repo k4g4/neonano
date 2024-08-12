@@ -1,24 +1,37 @@
-use anyhow::Context;
-
 use crate::{
     component::content::Content,
     core::Res,
     message::Message,
-    utils::out::{Bounds, Out},
+    utils::out::{self, Bounds, Out},
 };
+use anyhow::Context;
+use crossterm::{cursor::MoveTo, QueueableCommand};
 
 #[derive(Clone, Debug)]
 pub struct Screen {
     columns: [Option<Column>; 3],
     active: usize,
+    bounds: Bounds,
 }
 
 impl Screen {
     pub fn new(bounds: Bounds) -> Res<Self> {
+        let bordered = Bounds {
+            x0: bounds.x0 + 1,
+            y0: bounds.y0 + 1,
+            x1: bounds.x1 - 1,
+            y1: bounds.y1 - 1,
+        };
+
         Ok(Self {
-            columns: [Some(Column::new(bounds)?), None, None],
+            columns: [Some(Column::new(bordered)?), None, None],
             active: 0,
+            bounds,
         })
+    }
+
+    fn columns(&self) -> impl Iterator<Item = &Column> {
+        self.columns.iter().flatten()
     }
 
     fn len(&self) -> usize {
@@ -33,13 +46,29 @@ impl Screen {
     }
 
     pub fn view(&self, out: &mut Out) -> Res<()> {
+        let columns: u16 = self.len().try_into()?;
+        let left_tiles: u16 = self
+            .columns()
+            .next()
+            .context("columns never empty")?
+            .len()
+            .try_into()?;
+        let right_tiles: u16 = self
+            .columns()
+            .last()
+            .context("columns never empty")?
+            .len()
+            .try_into()?;
+
+        out::anchor(out, self.bounds)?;
+        out::vbar(out, self.bounds.height(), 1, left_tiles)?;
+        out.queue(MoveTo(self.bounds.x1, self.bounds.y0))?;
+        out::vbar(out, self.bounds.height(), right_tiles, 1)?;
+
         let inactive_columns = self
-            .columns
-            .iter()
-            .flatten()
+            .columns()
             .enumerate()
-            .filter(|&(i, _)| i != self.active)
-            .map(|(_, column)| column);
+            .filter_map(|(i, column)| (i != self.active).then(|| column));
 
         for column in inactive_columns {
             column.view(out, false)?;
@@ -66,6 +95,10 @@ impl Column {
             tiles: [Some(Tile::new(bounds)?), None, None],
             active: 0,
         })
+    }
+
+    fn tiles(&self) -> impl Iterator<Item = &Tile> {
+        self.tiles.iter().flatten()
     }
 
     fn len(&self) -> usize {
