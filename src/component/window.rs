@@ -1,5 +1,5 @@
 use crate::{
-    component::screen::Screen,
+    component::{frame::StatusLine, screen::Screen},
     core::Res,
     message::Message,
     utils::out::{Bounds, Out},
@@ -32,7 +32,11 @@ impl Window {
         }
     }
 
-    pub fn view(&self, out: &mut Out) -> Res<()> {
+    pub fn status(&self, statuses: &mut StatusLine) -> Res {
+        self.screens[self.active].status(statuses)
+    }
+
+    pub fn view(&self, out: &mut Out) -> Res {
         self.screens[self.active].view(out)
     }
 }

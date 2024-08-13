@@ -259,7 +259,7 @@ impl Line {
         self.content.drain(from.byte..to.byte);
     }
 
-    pub fn view(&self, out: &mut Out, x0: u16, x1: u16, active: Option<Index>) -> Res<()> {
+    pub fn view(&self, out: &mut Out, x0: u16, x1: u16, active: Option<Index>) -> Res {
         let width = usize::from(x1 - x0 - 1);
 
         for c in self.chars().take(width) {

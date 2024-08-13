@@ -1,12 +1,12 @@
 use crate::{
-    component::line::{Line, RawIndex},
+    component::{
+        frame::StatusLine,
+        line::{Line, RawIndex},
+    },
     core::Res,
     message::{Input, Key, KeyCombo, Message},
     pressed,
-    utils::{
-        out::{self, Bounds, Out},
-        shared::status::{self, Pos},
-    },
+    utils::out::{self, Bounds, Out},
 };
 use anyhow::Context;
 use crossterm::{
@@ -39,10 +39,7 @@ pub enum Content {
 
 impl Content {
     pub fn new(bounds: Bounds) -> Res<Self> {
-        let filepicker = FilePicker::new(bounds)?;
-        filepicker.update_status()?;
-
-        Ok(Self::FilePicker(filepicker))
+        Ok(Self::FilePicker(FilePicker::new(bounds)?))
     }
 
     pub fn update(&mut self, message: &Message) -> Res<Option<Message>> {
@@ -50,9 +47,6 @@ impl Content {
             pressed!(Key::Esc) => match self {
                 Self::Buffer(buffer) => {
                     let filepicker = FilePicker::new(buffer.bounds)?;
-
-                    status::reset_all()?;
-                    filepicker.update_status()?;
 
                     *self = Self::FilePicker(filepicker);
 
@@ -66,9 +60,6 @@ impl Content {
                 if let Content::FilePicker(filepicker) = self {
                     match Buffer::open(path, filepicker.bounds) {
                         Ok(buffer) => {
-                            status::reset_all()?;
-                            buffer.update_status()?;
-
                             *self = Self::Buffer(buffer);
                         }
                         Err(error) => {
@@ -85,23 +76,20 @@ impl Content {
             }
 
             _ => match self {
-                Content::Buffer(buffer) => {
-                    let update = buffer.update(message)?;
-                    buffer.update_status()?;
-
-                    Ok(update)
-                }
-                Content::FilePicker(filepicker) => {
-                    let update = filepicker.update(message)?;
-                    filepicker.update_status()?;
-
-                    Ok(update)
-                }
+                Content::Buffer(buffer) => buffer.update(message),
+                Content::FilePicker(filepicker) => filepicker.update(message),
             },
         }
     }
 
-    pub fn view(&self, out: &mut Out, active: bool) -> Res<()> {
+    pub fn status(&self, statuses: &mut StatusLine) -> Res {
+        match self {
+            Content::FilePicker(filepicker) => filepicker.status(statuses),
+            Content::Buffer(buffer) => buffer.status(statuses),
+        }
+    }
+
+    pub fn view(&self, out: &mut Out, active: bool) -> Res {
         match self {
             Content::Buffer(buffer) => buffer.view(out, active),
             Content::FilePicker(filepicker) => filepicker.view(out, active),
@@ -136,7 +124,7 @@ impl FilePicker {
         Ok(filepicker)
     }
 
-    fn open(&mut self) -> Res<()> {
+    fn open(&mut self) -> Res {
         self.entries = fs::read_dir(self.history.last().context("history never empty")?)?
             .map(|res| {
                 res.and_then(|entry| {
@@ -205,25 +193,25 @@ impl FilePicker {
         }
     }
 
-    fn update_status(&self) -> Res<()> {
-        status::set(Pos::Bottom, |status| -> Res<_> {
-            Ok(write!(
-                status,
-                "{}",
-                self.history
-                    .last()
-                    .context("history never empty")?
-                    .display()
-            )?)
-        })??;
-        status::set(Pos::BottomRight, |status| -> Res<_> {
-            Ok(write!(status, "history: {}", self.history.len())?)
-        })??;
+    pub fn status(&self, statuses: &mut StatusLine) -> Res {
+        match statuses {
+            StatusLine::Top(left, middle, right) => {
+                write!(left, "Filepicker Top Left")?;
+                write!(middle, "Filepicker Top")?;
+                write!(right, "Filepicker Top Right")?;
 
-        Ok(())
+                Ok(())
+            }
+            StatusLine::Bottom(left, middle, right) => {
+                write!(left, "Filepicker Bottom Left")?;
+                write!(middle, "Filepicker Bottom")?;
+                write!(right, "Filepicker Bottom Right")?;
+                Ok(())
+            }
+        }
     }
 
-    fn view(&self, out: &mut Out, active: bool) -> Res<()> {
+    fn view(&self, out: &mut Out, active: bool) -> Res {
         queue!(out, Hide)?;
         out::anchor(out, self.bounds)?;
 
@@ -450,19 +438,19 @@ impl Buffer {
         }
     }
 
-    fn jump_top(&mut self) -> Res<()> {
+    fn jump_top(&mut self) -> Res {
         while self.cursor_up()? {}
 
         Ok(())
     }
 
-    fn jump_bottom(&mut self) -> Res<()> {
+    fn jump_bottom(&mut self) -> Res {
         while self.cursor_down()? {}
 
         Ok(())
     }
 
-    fn fix_lines(&mut self) -> Res<()> {
+    fn fix_lines(&mut self) -> Res {
         let (len, height) = (self.lines.len(), self.bounds.height().into());
 
         match len.cmp(&height) {
@@ -487,7 +475,7 @@ impl Buffer {
         Ok(())
     }
 
-    fn type_char(&mut self, c: char) -> Res<()> {
+    fn type_char(&mut self, c: char) -> Res {
         let corrected = self.current_line()?.correct_index(self.index);
 
         self.current_line_mut()?.insert(corrected, c);
@@ -774,20 +762,25 @@ impl Buffer {
         }
     }
 
-    fn update_status(&self) -> Res<()> {
-        status::set(Pos::BottomRight, |status| -> Res<_> {
-            write!(status, "recycle: {}", self.recycle.len())?;
+    fn status(&self, statuses: &mut StatusLine) -> Res {
+        match statuses {
+            StatusLine::Top(left, middle, right) => {
+                write!(left, "Buffer Top Left")?;
+                write!(middle, "Buffer Top")?;
+                write!(right, "Buffer Top Right")?;
 
-            Ok(())
-        })??;
-        status::set(Pos::BottomLeft, |status| {
-            write!(status, "line num width: {}", self.line_num_width)?;
-
-            Ok(())
-        })?
+                Ok(())
+            }
+            StatusLine::Bottom(left, middle, right) => {
+                write!(left, "Buffer Bottom Left")?;
+                write!(middle, "Buffer Bottom")?;
+                write!(right, "Buffer Bottom Right")?;
+                Ok(())
+            }
+        }
     }
 
-    fn view(&self, out: &mut Out, active: bool) -> Res<()> {
+    fn view(&self, out: &mut Out, active: bool) -> Res {
         out::anchor(out, self.bounds)?;
 
         let num_width = usize::from(self.line_num_width);

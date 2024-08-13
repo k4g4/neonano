@@ -4,7 +4,6 @@ use crate::{
     utils::{
         input::InputReader,
         out::{Bounds, Out},
-        shared::status,
     },
 };
 use crossterm::{
@@ -15,7 +14,7 @@ use crossterm::{
 };
 use std::io::{self, Write};
 
-pub type Res<T> = anyhow::Result<T>;
+pub type Res<T = ()> = anyhow::Result<T>;
 
 #[derive(Debug)]
 pub struct Core {
@@ -34,7 +33,6 @@ impl Core {
         };
 
         terminal::enable_raw_mode()?;
-        status::reset_all()?;
 
         let mut out = io::stdout().lock();
         let init_result: Res<_> = (|| {

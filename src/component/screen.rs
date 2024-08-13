@@ -1,15 +1,11 @@
 use crate::{
-    component::content::Content,
+    component::{content::Content, frame::StatusLine},
     core::Res,
     message::Message,
     utils::out::{self, Bounds, Out},
 };
 use anyhow::Context;
-use crossterm::{
-    cursor::{MoveDown, MoveLeft, MoveRight, MoveTo, MoveUp},
-    queue,
-    style::Print,
-};
+use crossterm::{cursor::MoveTo, queue, style::Print};
 
 #[derive(Clone, Debug)]
 pub struct Screen {
@@ -39,7 +35,7 @@ impl Screen {
     }
 
     fn len(&self) -> usize {
-        self.columns.iter().flatten().count()
+        self.columns().count()
     }
 
     pub fn update(&mut self, message: &Message) -> Res<Option<Message>> {
@@ -49,7 +45,14 @@ impl Screen {
             .update(message)
     }
 
-    pub fn view(&self, out: &mut Out) -> Res<()> {
+    pub fn status(&self, statuses: &mut StatusLine) -> Res {
+        self.columns[self.active]
+            .as_ref()
+            .context("column should be Some")?
+            .status(statuses)
+    }
+
+    pub fn view(&self, out: &mut Out) -> Res {
         let columns: u16 = self.len().try_into()?;
         let left_tiles: u16 = self
             .columns()
@@ -121,7 +124,7 @@ impl Column {
     }
 
     fn len(&self) -> usize {
-        self.tiles.iter().flatten().count()
+        self.tiles().count()
     }
 
     fn update(&mut self, message: &Message) -> Res<Option<Message>> {
@@ -131,11 +134,16 @@ impl Column {
             .update(message)
     }
 
-    fn view(&self, out: &mut Out, active: bool) -> Res<()> {
+    pub fn status(&self, statuses: &mut StatusLine) -> Res {
+        self.tiles[self.active]
+            .as_ref()
+            .context("tile should be Some")?
+            .status(statuses)
+    }
+
+    fn view(&self, out: &mut Out, active: bool) -> Res {
         let inactive_tiles = self
-            .tiles
-            .iter()
-            .flatten()
+            .tiles()
             .enumerate()
             .filter(|&(i, _)| !active || i != self.active)
             .map(|(_, tile)| tile);
@@ -173,7 +181,11 @@ impl Tile {
         self.content[self.active].update(message)
     }
 
-    fn view(&self, out: &mut Out, active: bool) -> Res<()> {
+    pub fn status(&self, statuses: &mut StatusLine) -> Res {
+        self.content[self.active].status(statuses)
+    }
+
+    fn view(&self, out: &mut Out, active: bool) -> Res {
         self.content[self.active].view(out, active)
     }
 }
