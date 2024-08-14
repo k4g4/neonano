@@ -1,11 +1,13 @@
 use crate::{
-    component::{content::Content, frame::StatusLine},
+    component::{filepicker::FilePicker, frame::StatusLine, portal::Portal},
     core::Res,
-    message::Message,
+    message::{Key, Message},
+    pressed,
     utils::out::{self, Bounds, Out},
 };
 use anyhow::Context;
 use crossterm::{cursor::MoveTo, queue, style::Print};
+use std::io::{self, ErrorKind};
 
 #[derive(Clone, Debug)]
 pub struct Screen {
@@ -187,5 +189,71 @@ impl Tile {
 
     fn view(&self, out: &mut Out, active: bool) -> Res {
         self.content[self.active].view(out, active)
+    }
+}
+
+#[derive(Clone, Debug)]
+pub enum Content {
+    FilePicker(FilePicker),
+    Portal(Portal),
+}
+
+impl Content {
+    fn new(bounds: Bounds) -> Res<Self> {
+        Ok(Self::FilePicker(FilePicker::new(bounds)?))
+    }
+
+    fn update(&mut self, message: &Message) -> Res<Option<Message>> {
+        match message {
+            pressed!(Key::Esc) => match self {
+                Self::Portal(portal) => {
+                    let filepicker = FilePicker::new(portal.bounds())?;
+
+                    *self = Self::FilePicker(filepicker);
+
+                    Ok(None)
+                }
+
+                Self::FilePicker(filepicker) => filepicker.update(message),
+            },
+
+            Message::Open(path) => {
+                if let Self::FilePicker(filepicker) = self {
+                    match Portal::open(path, filepicker.bounds()) {
+                        Ok(buffer) => {
+                            *self = Self::Portal(buffer);
+                        }
+                        Err(error) => {
+                            let io_error: &io::Error =
+                                error.downcast_ref().context("unknown error")?;
+                            if io_error.kind() != ErrorKind::InvalidData {
+                                return Err(error);
+                            }
+                        }
+                    }
+                }
+
+                Ok(None)
+            }
+
+            _ => match self {
+                Content::Portal(buffer) => buffer.update(message),
+                Content::FilePicker(filepicker) => filepicker.update(message),
+            },
+        }
+    }
+
+    fn status(&self, statuses: &mut StatusLine) -> Res {
+        match self {
+            Content::FilePicker(filepicker) => filepicker.status(statuses),
+            Content::Portal(buffer) => buffer.status(statuses),
+        }
+    }
+
+    fn view(&self, out: &mut Out, active: bool) -> Res {
+        match self {
+            Content::Portal(buffer) => buffer.view(out, active),
+            Content::FilePicker(filepicker) => filepicker.view(out, active),
+        }
     }
 }

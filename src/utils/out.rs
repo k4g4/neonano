@@ -29,21 +29,21 @@ impl Bounds {
         [Bounds { y1: y, ..self }, Bounds { y0: y, ..self }]
     }
 
-    pub fn vsplit(self, x: u16) -> [Self; 2] {
+    pub fn _vsplit(self, x: u16) -> [Self; 2] {
         [Bounds { x1: x, ..self }, Bounds { x0: x, ..self }]
     }
 
-    pub fn hsplit2(self) -> [Self; 2] {
+    pub fn _hsplit2(self) -> [Self; 2] {
         let mid = self.y0 + self.height() / 2;
         [Bounds { y1: mid, ..self }, Bounds { y0: mid, ..self }]
     }
 
-    pub fn vsplit2(self) -> [Self; 2] {
+    pub fn _vsplit2(self) -> [Self; 2] {
         let mid = self.x0 + self.width() / 2;
         [Bounds { x1: mid, ..self }, Bounds { x0: mid, ..self }]
     }
 
-    pub fn hsplit3(self) -> [Self; 3] {
+    pub fn _hsplit3(self) -> [Self; 3] {
         let third = self.height() / 3;
         let (left, right) = (self.y0 + third, self.y1 - third);
         [

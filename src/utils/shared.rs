@@ -2,18 +2,18 @@ use std::cell::RefCell;
 
 #[derive(Default, Debug)]
 pub struct Shared {
-    debug: String,
+    _debug: String,
 }
 
 thread_local! {
     static SHARED: RefCell<Shared> = Default::default();
 }
 
-pub fn get<Ret>(f: impl FnOnce(&Shared) -> Ret) -> Ret {
+pub fn _get<Ret>(f: impl FnOnce(&Shared) -> Ret) -> Ret {
     SHARED.with_borrow(|shared| f(shared))
 }
 
-pub fn set<Ret>(f: impl FnOnce(&mut Shared) -> Ret) -> Ret {
+pub fn _set<Ret>(f: impl FnOnce(&mut Shared) -> Ret) -> Ret {
     SHARED.with_borrow_mut(|shared| f(shared))
 }
 

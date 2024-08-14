@@ -1,7 +1,7 @@
 use crate::{
     component::window::Window,
     core::Res,
-    message::{Input, Key, KeyCombo, Message},
+    message::{Key, Message},
     pressed,
     utils::out::{self, Bounds, Out},
 };

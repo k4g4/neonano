@@ -89,9 +89,9 @@ impl TryFrom<Event> for Input {
             }
             Event::Mouse(MouseEvent {
                 kind,
-                column,
-                row,
-                modifiers,
+                column: _column,
+                row: _row,
+                modifiers: _modifiers,
             }) => match kind {
                 MouseEventKind::ScrollDown => Self::ScrollDown,
                 MouseEventKind::ScrollUp => Self::ScrollUp,
@@ -106,11 +106,14 @@ impl TryFrom<Event> for Input {
 #[macro_export]
 macro_rules! pressed {
     ($key:pat) => {
-        Message::Input(Input::KeyCombo(KeyCombo { key: $key, .. }))
+        Message::Input(crate::message::Input::KeyCombo(crate::message::KeyCombo {
+            key: $key,
+            ..
+        }))
     };
 
     ($key:pat, shift + ctrl) => {
-        Message::Input(Input::KeyCombo(KeyCombo {
+        Message::Input(crate::message::Input::KeyCombo(crate::message::KeyCombo {
             key: $key,
             shift: true,
             ctrl: true,
@@ -119,7 +122,7 @@ macro_rules! pressed {
     };
 
     ($key:pat, ctrl) => {
-        Message::Input(Input::KeyCombo(KeyCombo {
+        Message::Input(crate::message::Input::KeyCombo(crate::message::KeyCombo {
             key: $key,
             ctrl: true,
             ..
@@ -127,7 +130,7 @@ macro_rules! pressed {
     };
 
     ($key:pat, shift) => {
-        Message::Input(Input::KeyCombo(KeyCombo {
+        Message::Input(crate::message::Input::KeyCombo(crate::message::KeyCombo {
             key: $key,
             shift: true,
             ..
