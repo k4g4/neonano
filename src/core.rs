@@ -2,6 +2,7 @@ use crate::{
     component::frame::Frame,
     message::Message,
     utils::{
+        self,
         input::InputReader,
         out::{Bounds, Out},
     },
