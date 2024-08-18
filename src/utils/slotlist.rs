@@ -45,7 +45,7 @@ impl<T> FromIterator<T> for SlotList<T> {
         };
         let mut map = SlotMap::with_capacity(capacity);
 
-        for item in into_iter.into_iter() {
+        for item in iter {
             let key = map.insert(Node {
                 next: None,
                 prev,
@@ -101,6 +101,18 @@ impl<T> SlotList<T> {
 
     pub fn is_empty(&self) -> bool {
         self.map.is_empty()
+    }
+
+    pub fn get(&self, key: Key) -> Option<(&T, (Option<Key>, Option<Key>))> {
+        self.map
+            .get(key)
+            .map(|node| (&node.item, (node.prev, node.next)))
+    }
+
+    pub fn get_mut(&mut self, key: Key) -> Option<(&mut T, (Option<Key>, Option<Key>))> {
+        self.map
+            .get_mut(key)
+            .map(|node| (&mut node.item, (node.prev, node.next)))
     }
 
     pub fn next(&self, key: Key) -> Option<Key> {
@@ -179,8 +191,14 @@ impl<T> SlotList<T> {
         new_key
     }
 
-    fn remove(&mut self, key: Key) -> Node<T> {
-        let node = self.map.remove(key).unwrap();
+    pub fn clear(&mut self) {
+        self.map.clear();
+        self.front = None;
+        self.back = None;
+    }
+
+    pub fn remove(&mut self, key: Key) -> Option<(T, (Option<Key>, Option<Key>))> {
+        let node = self.map.remove(key)?;
 
         if let Some(prev_key) = node.prev {
             self.map[prev_key].next = node.next;
@@ -193,19 +211,19 @@ impl<T> SlotList<T> {
             self.back = node.prev;
         }
 
-        node
+        Some((node.item, (node.prev, node.next)))
     }
 
-    pub fn remove_and_next(&mut self, key: Key) -> (T, Option<Key>) {
-        let node = self.remove(key);
+    pub fn pop_back(&mut self) -> Option<T> {
+        let (item, _) = self.remove(self.back?)?;
 
-        (node.item, node.next.or(self.front))
+        Some(item)
     }
 
-    pub fn remove_and_prev(&mut self, key: Key) -> (T, Option<Key>) {
-        let node = self.remove(key);
+    pub fn pop_front(&mut self) -> Option<T> {
+        let (item, _) = self.remove(self.front?)?;
 
-        (node.item, node.prev.or(self.back))
+        Some(item)
     }
 
     pub fn iter(&self) -> Iter<T> {
@@ -258,13 +276,13 @@ impl<T> Iterator for IntoIter<T> {
     type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {
-        Some(self.0.remove(self.0.front?).item)
+        self.0.pop_front()
     }
 }
 
 impl<T> DoubleEndedIterator for IntoIter<T> {
     fn next_back(&mut self) -> Option<Self::Item> {
-        Some(self.0.remove(self.0.back?).item)
+        self.0.pop_back()
     }
 }
 
@@ -407,7 +425,7 @@ where
             while !(self.filter)(&mut self.list[self.front?]) {
                 self.front = self.list.next(self.front?);
             }
-            let (item, next) = self.list.remove_and_next(self.front?);
+            let (item, (_, next)) = self.list.remove(self.front?)?;
             self.front = next;
 
             Some(item)
@@ -426,7 +444,7 @@ where
             while !(self.filter)(&mut self.list[self.back?]) {
                 self.back = self.list.prev(self.back?);
             }
-            let (item, prev) = self.list.remove_and_prev(self.back?);
+            let (item, (prev, _)) = self.list.remove(self.back?)?;
             self.back = prev;
 
             Some(item)
@@ -471,4 +489,216 @@ impl<T: Hash> Hash for SlotList<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn new_is_empty() {
+        assert!(SlotList::<()>::new().is_empty())
+    }
+
+    #[test]
+    fn from_iter() {
+        let list: SlotList<_> = (0..10).filter(|item| *item != 5).collect();
+        let debug = format!("{list:?}");
+        assert_eq!("[0, 1, 2, 3, 4, 6, 7, 8, 9]", debug);
+    }
+
+    #[test]
+    fn push_back_one() {
+        let mut list = SlotList::new();
+        list.push_back(1);
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[list.front().unwrap()], 1);
+        assert_eq!(&list[list.back().unwrap()], &1);
+    }
+
+    #[test]
+    fn push_front_one() {
+        let mut list = SlotList::new();
+        list.push_front(1);
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[list.front().unwrap()], 1);
+        assert_eq!(&list[list.back().unwrap()], &1);
+    }
+
+    #[test]
+    fn key() {
+        let mut list = SlotList::new();
+        let key = list.push_back(1);
+        assert_eq!(list[key], 1);
+        assert_eq!(key, list.front().unwrap());
+        assert_eq!(key, list.back().unwrap());
+    }
+
+    #[test]
+    #[should_panic]
+    fn invalid_key() {
+        let mut list = SlotList::new();
+        let key = list.push_back(1);
+        list.clear();
+        list[key];
+    }
+
+    #[test]
+    fn inserting() {
+        let mut list: SlotList<_> = [1, 3, 4, 6, 7].into_iter().collect();
+        let key = list.front().unwrap();
+        let key = list.next(key).unwrap();
+        let new_key = list.insert_prev(key, 2);
+        assert_eq!(list[new_key], 2);
+        let key = list.next(key).unwrap();
+        let new_key = list.insert_next(key, 5);
+        assert_eq!(list[new_key], 5);
+        assert_eq!(list, (1..=7).collect());
+    }
+
+    #[test]
+    fn iter() {
+        let mut list = SlotList::new();
+        list.push_back(2);
+        list.push_back(3);
+        list.push_front(1);
+        let mut iter = list.into_iter();
+        assert_eq!(iter.next(), Some(1));
+        assert_eq!(iter.next(), Some(2));
+        assert_eq!(iter.next(), Some(3));
+        assert_eq!(iter.next(), None);
+    }
+
+    #[test]
+    fn iter_mut() {
+        let mut list = SlotList::new();
+        list.push_back(2);
+        list.push_back(3);
+        list.push_front(1);
+        for item in list.iter_mut() {
+            *item += 1;
+        }
+        let mut iter = list.into_iter();
+        assert_eq!(iter.next(), Some(2));
+        assert_eq!(iter.next(), Some(3));
+        assert_eq!(iter.next(), Some(4));
+        assert_eq!(iter.next(), None);
+    }
+
+    #[test]
+    fn rev() {
+        let mut list = SlotList::new();
+        list.push_back('C');
+        list.push_back('B');
+        list.push_back('A');
+        list.push_front('D');
+        list.push_front('E');
+        let letters: String = list.iter().rev().collect();
+        assert_eq!(letters, "ABCDE");
+    }
+
+    #[test]
+    fn debug() {
+        let mut list = SlotList::new();
+        list.push_back(2);
+        list.push_back(3);
+        list.push_front(1);
+        let debug = format!("{list:?}");
+        assert_eq!(debug, "[1, 2, 3]");
+    }
+
+    #[test]
+    fn clone() {
+        let list: SlotList<_> = (0..10).filter(|item| *item != 5).collect();
+        let list_clone = list.clone();
+        assert_eq!(list, list_clone);
+    }
+
+    #[test]
+    fn ord() {
+        let smaller = SlotList::from_iter([1, 2, 3]);
+        let mut larger = SlotList::new();
+        larger.push_back(2);
+        larger.push_back(4);
+        larger.push_front(1);
+        assert!(smaller < larger);
+        assert!(larger > smaller);
+    }
+
+    #[test]
+    fn extend() {
+        let mut list = SlotList::from_iter("the quick brown fox".split_whitespace());
+        list.extend("jumps over the lazy dog".split_whitespace());
+        let words: Vec<_> = list.iter().copied().collect();
+        assert_eq!(
+            words.join(" "),
+            "the quick brown fox jumps over the lazy dog"
+        );
+    }
+
+    #[test]
+    fn flatten_lists() {
+        let mut list = SlotList::from_iter([
+            SlotList::from_iter([3, 4, 5]),
+            SlotList::from_iter([6, 7, 8]),
+        ]);
+        list.push_front(SlotList::from_iter([0, 1, 2]));
+        let key = list.back().unwrap();
+        list[key].push_back(9);
+        let flattened: SlotList<_> = list.into_iter().flatten().collect();
+        assert_eq!(flattened.len(), 10);
+        for (i, item) in flattened.into_iter().enumerate() {
+            assert_eq!(i, item);
+        }
+    }
+
+    #[test]
+    fn pop_back() {
+        let mut list = SlotList::new();
+        assert!(list.pop_back().is_none());
+        list.push_back(0);
+        assert_eq!(list.pop_back(), Some(0));
+        assert!(list.pop_back().is_none());
+        list.push_front(1);
+        assert_eq!(list.pop_back(), Some(1));
+        assert!(list.pop_back().is_none());
+        list.extend([2, 3, 4]);
+        assert_eq!(list.pop_back(), Some(4));
+        list.push_front(1);
+        assert_eq!(list.pop_back(), Some(3));
+        list.push_back(5);
+        assert_eq!(list.pop_back(), Some(5));
+        assert_eq!(list.pop_back(), Some(2));
+        assert_eq!(list.pop_back(), Some(1));
+        assert!(list.pop_back().is_none());
+    }
+
+    #[test]
+    fn pop_front() {
+        let mut list = SlotList::new();
+        assert!(list.pop_front().is_none());
+        list.push_front(0);
+        assert_eq!(list.pop_front(), Some(0));
+        assert!(list.pop_front().is_none());
+        list.push_back(1);
+        assert_eq!(list.pop_front(), Some(1));
+        assert!(list.pop_front().is_none());
+        list.extend([2, 3, 4]);
+        assert_eq!(list.pop_front(), Some(2));
+        list.push_back(5);
+        assert_eq!(list.pop_front(), Some(3));
+        list.push_front(1);
+        assert_eq!(list.pop_front(), Some(1));
+        assert_eq!(list.pop_front(), Some(4));
+        assert_eq!(list.pop_front(), Some(5));
+        assert!(list.pop_front().is_none());
+    }
+
+    #[test]
+    fn zst() {
+        #[derive(PartialEq)]
+        struct Nothing;
+        let mut list = SlotList::from_iter([Nothing, Nothing, Nothing, Nothing]);
+        assert_eq!(list.len(), 4);
+        list.push_back(Nothing);
+        assert_eq!(list.len(), 5);
+        assert!(list.iter().all(|nothing| *nothing == Nothing));
+        list.clear();
+        assert!(list.is_empty());
+    }
 }
